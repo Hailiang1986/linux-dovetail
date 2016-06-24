@@ -46,12 +46,12 @@ struct vdso_data {
 	u64 xtime_clock_snsec;	/* CLOCK_REALTIME sub-ns base */
 	u32 tz_minuteswest;	/* timezone info for gettimeofday(2) */
 	u32 tz_dsttime;
-};
+} __attribute__ ((aligned(PAGE_SIZE)));
 
-union vdso_data_store {
-	struct vdso_data data;
-	u8 page[PAGE_SIZE];
-};
+#ifndef VDSO_DATA_SIZE
+#define VDSO_DATA_SIZE		sizeof(struct vdso_data)
+#endif
+#define VDSO_NR_DATA_PAGES	(VDSO_DATA_SIZE >> PAGE_SHIFT)
 
 #endif /* !__ASSEMBLY__ */
 

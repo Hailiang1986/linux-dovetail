@@ -47,13 +47,16 @@ unsigned int vdso_total_pages __ro_after_init;
 /*
  * The VDSO data page.
  */
-static union vdso_data_store vdso_data_store __page_aligned_data;
+static union vdso_data_store {
+	struct vdso_data data;
+	u8 pages[VDSO_DATA_SIZE];
+} vdso_data_store __page_aligned_data;
 static struct vdso_data *vdso_data = &vdso_data_store.data;
 
-static struct page *vdso_data_page __ro_after_init;
+static struct page *vdso_data_pagelist[VDSO_NR_DATA_PAGES] __ro_after_init;
 static const struct vm_special_mapping vdso_data_mapping = {
 	.name = "[vvar]",
-	.pages = &vdso_data_page,
+	.pages = vdso_data_pagelist,
 };
 
 static int vdso_mremap(const struct vm_special_mapping *sm,
@@ -214,7 +217,12 @@ static int __init vdso_init(void)
 		return -ENOMEM;
 
 	/* Grab the VDSO data page. */
-	vdso_data_page = virt_to_page(vdso_data);
+	for (i = 0; i < ARRAY_SIZE(vdso_data_pagelist); i++) {
+		struct page *page;
+
+		page = virt_to_page((void *)vdso_data + i * PAGE_SIZE);
+		vdso_data_pagelist[i] = page;
+	}
 
 	/* Grab the VDSO text pages. */
 	for (i = 0; i < text_pages; i++) {
@@ -226,7 +234,7 @@ static int __init vdso_init(void)
 
 	vdso_text_mapping.pages = vdso_text_pagelist;
 
-	vdso_total_pages = 1; /* for the data/vvar page */
+	vdso_total_pages = VDSO_NR_DATA_PAGES; /* for the data/vvar page */
 	vdso_total_pages += text_pages;
 
 	cntvct_ok = cntvct_functional();
@@ -241,7 +249,7 @@ static int install_vvar(struct mm_struct *mm, unsigned long addr)
 {
 	struct vm_area_struct *vma;
 
-	vma = _install_special_mapping(mm, addr, PAGE_SIZE,
+	vma = _install_special_mapping(mm, addr, VDSO_DATA_SIZE,
 				       VM_READ | VM_MAYREAD,
 				       &vdso_data_mapping);
 
@@ -262,9 +270,9 @@ void arm_install_vdso(struct mm_struct *mm, unsigned long addr)
 	if (install_vvar(mm, addr))
 		return;
 
-	/* Account for vvar page. */
-	addr += PAGE_SIZE;
-	len = (vdso_total_pages - 1) << PAGE_SHIFT;
+	/* Account for vvar page(s). */
+	addr += VDSO_DATA_SIZE;
+	len = (vdso_total_pages - VDSO_NR_DATA_PAGES) << PAGE_SHIFT;
 
 	vma = _install_special_mapping(mm, addr, len,
 		VM_READ | VM_EXEC | VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC,

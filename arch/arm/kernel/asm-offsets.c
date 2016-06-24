@@ -187,7 +187,7 @@ int main(void)
 #endif
   BLANK();
 #ifdef CONFIG_VDSO
-  DEFINE(VDSO_DATA_SIZE,	sizeof(union vdso_data_store));
+  DEFINE(VDSO_DATA_SIZE,	sizeof(struct vdso_data));
 #endif
   BLANK();
 #ifdef CONFIG_ARM_MPU
