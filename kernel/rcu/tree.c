@@ -696,7 +696,11 @@ noinstr void rcu_nmi_exit(void)
 {
 	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
 
+	if (running_oob())
+		return;
+
 	instrumentation_begin();
+
 	/*
 	 * Check for ->dynticks_nmi_nesting underflow and bad ->dynticks.
 	 * (We are exiting an NMI handler, so RCU better be paying attention
@@ -970,6 +974,9 @@ noinstr void rcu_nmi_enter(void)
 	long incby = 2;
 	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
 
+	if (running_oob())
+		return;
+
 	/* Complain about underflow. */
 	WARN_ON_ONCE(rdp->dynticks_nmi_nesting < 0);
 
@@ -1092,6 +1099,9 @@ noinstr bool __rcu_is_watching(void)
 bool rcu_is_watching(void)
 {
 	bool ret;
+
+	if (running_oob())
+		return true;
 
 	preempt_disable_notrace();
 	ret = !rcu_dynticks_curr_cpu_in_eqs();

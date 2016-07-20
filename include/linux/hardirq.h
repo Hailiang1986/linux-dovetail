@@ -7,6 +7,7 @@
 #include <linux/lockdep.h>
 #include <linux/ftrace_irq.h>
 #include <linux/vtime.h>
+#include <asm-generic/irq_pipeline.h>
 #include <asm/hardirq.h>
 
 extern void synchronize_irq(unsigned int irq);
@@ -113,6 +114,7 @@ extern void rcu_nmi_exit(void);
  */
 #define nmi_enter()						\
 	do {							\
+		irq_pipeline_nmi_enter();			\
 		arch_nmi_enter();				\
 		printk_nmi_enter();				\
 		lockdep_off();					\
@@ -137,6 +139,22 @@ extern void rcu_nmi_exit(void);
 		lockdep_on();					\
 		printk_nmi_exit();				\
 		arch_nmi_exit();				\
+		irq_pipeline_nmi_exit();			\
 	} while (0)
+
+static inline bool start_irq_flow(void)
+{
+	return !irqs_pipelined() || in_pipeline();
+}
+
+static inline bool on_pipeline_entry(void)
+{
+	return irqs_pipelined() && in_pipeline();
+}
+
+static inline bool in_hard_irq(void)
+{
+	return irqs_pipelined() ? in_pipeline() : in_irq();
+}
 
 #endif /* LINUX_HARDIRQ_H */

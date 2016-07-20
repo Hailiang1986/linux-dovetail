@@ -50,6 +50,7 @@
 #include <linux/tick.h>
 #include <linux/sched/isolation.h>
 #include <linux/interrupt.h>
+#include <linux/irq_pipeline.h>
 #include <linux/taskstats_kern.h>
 #include <linux/delayacct.h>
 #include <linux/unistd.h>
@@ -838,7 +839,7 @@ asmlinkage __visible void __init start_kernel(void)
 
 	cgroup_init_early();
 
-	local_irq_disable();
+	local_irq_disable_full();
 	early_boot_irqs_disabled = true;
 
 	/*
@@ -882,6 +883,7 @@ asmlinkage __visible void __init start_kernel(void)
 	setup_log_buf(0);
 	vfs_caches_init_early();
 	sort_main_extable();
+	irq_pipeline_init_early();
 	trap_init();
 	mm_init();
 
@@ -931,6 +933,7 @@ asmlinkage __visible void __init start_kernel(void)
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
 	init_IRQ();
+	irq_pipeline_init();
 	tick_init();
 	rcu_init_nohz();
 	init_timers();
@@ -958,7 +961,7 @@ asmlinkage __visible void __init start_kernel(void)
 	WARN(!irqs_disabled(), "Interrupts were enabled early\n");
 
 	early_boot_irqs_disabled = false;
-	local_irq_enable();
+	local_irq_enable_full();
 
 	kmem_cache_init_late();
 
