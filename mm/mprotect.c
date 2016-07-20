@@ -44,7 +44,7 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 {
 	pte_t *pte, oldpte;
 	spinlock_t *ptl;
-	unsigned long pages = 0;
+	unsigned long pages = 0, flags;
 	int target_node = NUMA_NO_NODE;
 	bool dirty_accountable = cp_flags & MM_CP_DIRTY_ACCT;
 	bool prot_numa = cp_flags & MM_CP_PROT_NUMA;
@@ -128,6 +128,7 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 					continue;
 			}
 
+			flags = hard_local_irq_save();
 			oldpte = ptep_modify_prot_start(vma, addr, pte);
 			ptent = pte_modify(oldpte, newprot);
 			if (preserve_write)
@@ -155,6 +156,7 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
 			if (pte_needs_flush(oldpte, ptent))
 				tlb_flush_pte_range(tlb, addr, PAGE_SIZE);
+			hard_local_irq_restore(flags);
 			pages++;
 		} else if (is_swap_pte(oldpte)) {
 			swp_entry_t entry = pte_to_swp_entry(oldpte);
