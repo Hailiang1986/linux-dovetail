@@ -550,19 +550,6 @@ ENTRY(_system_call)
 	p2 = [p2];
 
 	[p2+(TASK_THREAD+THREAD_KSP)] = sp;
-#ifdef CONFIG_IPIPE
-	r0 = sp;
-	SP += -12;
-	pseudo_long_call ___ipipe_syscall_root, p0;
-	SP += 12;
-	cc = r0 == 1;
-	if cc jump .Lsyscall_really_exit;
-	cc = r0 == -1;
-	if cc jump .Lresume_userspace;
-	r3 = [sp + PT_R3];
-	r4 = [sp + PT_R4];
-	p0 = [sp + PT_ORIG_P0];
-#endif /* CONFIG_IPIPE */
 
 	/* are we tracing syscalls?*/
 	r7 = sp;
@@ -618,23 +605,6 @@ ENTRY(_system_call)
 	r7 =  r7 & r4;
 
 .Lsyscall_resched:
-#ifdef CONFIG_IPIPE
-	cc = BITTST(r7, TIF_IRQ_SYNC);
-	if !cc jump .Lsyscall_no_irqsync;
-	/*
-	 * Clear IPEND[4] manually to undo what resume_userspace_1 just did;
-	 * we need this so that high priority domain interrupts may still
-	 * preempt the current domain while the pipeline log is being played
-	 * back.
-	 */
-	[--sp] = reti;
-	SP += 4; /* don't merge with next insn to keep the pattern obvious */
-	SP += -12;
-	pseudo_long_call ___ipipe_sync_root, p4;
-	SP += 12;
-	jump .Lresume_userspace_1;
-.Lsyscall_no_irqsync:
-#endif
 	cc = BITTST(r7, TIF_NEED_RESCHED);
 	if !cc jump .Lsyscall_sigpending;
 
@@ -760,15 +730,6 @@ _new_old_task:
 ENDPROC(_resume)
 
 ENTRY(_ret_from_exception)
-#ifdef CONFIG_IPIPE
-	p2.l = _ipipe_percpu_domain;
-	p2.h = _ipipe_percpu_domain;
-	r0.l = _ipipe_root;
-	r0.h = _ipipe_root;
-	r2 = [p2];
-	cc = r0 == r2;
-	if !cc jump 4f;  /* not on behalf of the root domain, get out */
-#endif /* CONFIG_IPIPE */
 	p2.l = lo(IPEND);
 	p2.h = hi(IPEND);
 
@@ -885,31 +846,7 @@ ENDPROC(_evt_up_evt14)
 
 #endif
 
-#ifdef CONFIG_IPIPE
-
-_resume_kernel_from_int:
-	r1 = LO(~0x8000) (Z);
-	r1 = r0 & r1;
-	r0 = 1;
-	r0 = r1 - r0;
-	r2 = r1 & r0;
-	cc = r2 == 0;
-	/* Sync the root stage only from the outer interrupt level. */
-	if !cc jump .Lnosync;
-	r0.l = ___ipipe_sync_root;
-	r0.h = ___ipipe_sync_root;
-	[--sp] = reti;
-	[--sp] = rets;
-	[--sp] = ( r7:4, p5:3 );
-	SP += -12;
-	call ___ipipe_call_irqtail
-	SP += 12;
-	( r7:4, p5:3 ) = [sp++];
-	rets = [sp++];
-	reti = [sp++];
-.Lnosync:
-	rts
-#elif defined(CONFIG_PREEMPT)
+#ifdef CONFIG_PREEMPT
 
 _resume_kernel_from_int:
 	/* check preempt_count */

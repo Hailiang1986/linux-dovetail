@@ -110,12 +110,6 @@ __common_int_entry:
 
 	r1 =  sp;
 	SP += -12;
-#ifdef CONFIG_IPIPE
-	call ___ipipe_grab_irq
-	SP += 12;
-	cc = r0 == 0;
-	if cc jump .Lcommon_restore_context;
-#else /* CONFIG_IPIPE */
 
 #ifdef CONFIG_PREEMPT
 	r7 = sp;
@@ -135,7 +129,6 @@ __common_int_entry:
 #endif
 
 	SP += 12;
-#endif /* CONFIG_IPIPE */
 	pseudo_long_call _return_from_int, p2;
 .Lcommon_restore_context:
 	RESTORE_CONTEXT
@@ -266,61 +259,3 @@ ENTRY(_evt_system_call)
 	pseudo_long_call _system_call, p2;
 	jump .Lcommon_restore_context;
 ENDPROC(_evt_system_call)
-
-#ifdef CONFIG_IPIPE
-/*
- * __ipipe_call_irqtail: lowers the current priority level to EVT15
- * before running a user-defined routine, then raises the priority
- * level to EVT14 to prepare the caller for a normal interrupt
- * return through RTI.
- *
- * We currently use this feature in two occasions:
- *
- * - before branching to __ipipe_irq_tail_hook as requested by a high
- *   priority domain after the pipeline delivered an interrupt,
- *   e.g. such as Xenomai, in order to start its rescheduling
- *   procedure, since we may not switch tasks when IRQ levels are
- *   nested on the Blackfin, so we have to fake an interrupt return
- *   so that we may reschedule immediately.
- *
- * - before branching to __ipipe_sync_root(), in order to play any interrupt
- *   pending for the root domain (i.e. the Linux kernel). This lowers
- *   the core priority level enough so that Linux IRQ handlers may
- *   never delay interrupts handled by high priority domains; we defer
- *   those handlers until this point instead. This is a substitute
- *   to using a threaded interrupt model for the Linux kernel.
- *
- * r0: address of user-defined routine
- * context: caller must have preempted EVT15, hw interrupts must be off.
- */
-ENTRY(___ipipe_call_irqtail)
-	p0 = r0;
-	r0.l = 1f;
-	r0.h = 1f;
-	reti = r0;
-	rti;
-1:
-	[--sp] = rets;
-	[--sp] = ( r7:4, p5:3 );
-	sp += -12;
-	call (p0);
-	sp += 12;
-	( r7:4, p5:3 ) = [sp++];
-	rets = [sp++];
-
-#ifdef CONFIG_DEBUG_HWERR
-	/* enable irq14 & hwerr interrupt, until we transition to _evt_evt14 */
-	r0 = (EVT_IVG14 | EVT_IVHW | \
-		EVT_IRPTEN | EVT_EVX | EVT_NMI | EVT_RST | EVT_EMU);
-#else
-	/* Only enable irq14 interrupt, until we transition to _evt_evt14 */
-	r0 = (EVT_IVG14 | \
-		EVT_IRPTEN | EVT_EVX | EVT_NMI | EVT_RST | EVT_EMU);
-#endif
-	sti r0;
-	raise 14;		/* Branches to _evt_evt14 */
-2:
-	jump 2b;                /* Likely paranoid. */
-ENDPROC(___ipipe_call_irqtail)
-
-#endif /* CONFIG_IPIPE */

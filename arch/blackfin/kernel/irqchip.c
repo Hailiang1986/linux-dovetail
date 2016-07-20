@@ -63,7 +63,6 @@ static void check_stack_overflow(int irq)
 static inline void check_stack_overflow(int irq) { }
 #endif
 
-#ifndef CONFIG_IPIPE
 static void maybe_lower_to_irq14(void)
 {
 	unsigned short pending, other_ints;
@@ -82,9 +81,6 @@ static void maybe_lower_to_irq14(void)
 	if (other_ints == 0)
 		lower_to_irq14();
 }
-#else
-static inline void maybe_lower_to_irq14(void) { }
-#endif
 
 /*
  * do_IRQ handles all hardware IRQs.  Decoded IRQs should not

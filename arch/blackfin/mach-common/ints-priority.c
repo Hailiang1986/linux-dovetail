@@ -19,9 +19,6 @@
 #include <linux/sched/debug.h>
 #include <linux/syscore_ops.h>
 #include <asm/delay.h>
-#ifdef CONFIG_IPIPE
-#include <linux/ipipe.h>
-#endif
 #include <asm/traps.h>
 #include <asm/blackfin.h>
 #include <asm/irq_handler.h>
@@ -553,14 +550,7 @@ static struct irq_chip bfin_sec_irqchip = {
 
 void bfin_handle_irq(unsigned irq)
 {
-#ifdef CONFIG_IPIPE
-	struct pt_regs regs;    /* Contents not used. */
-	ipipe_trace_irq_entry(irq);
-	__ipipe_handle_irq(irq, &regs);
-	ipipe_trace_irq_exit(irq);
-#else /* !CONFIG_IPIPE */
 	generic_handle_irq(irq);
-#endif  /* !CONFIG_IPIPE */
 }
 
 #if defined(CONFIG_BFIN_MAC) || defined(CONFIG_BFIN_MAC_MODULE)
@@ -688,9 +678,6 @@ void bfin_demux_mac_status_irq(struct irq_desc *inta_desc)
 
 static inline void bfin_set_irq_handler(struct irq_data *d, irq_flow_handler_t handle)
 {
-#ifdef CONFIG_IPIPE
-	handle = handle_level_irq;
-#endif
 	irq_set_handler_locked(d, handle);
 }
 
@@ -1047,11 +1034,7 @@ int __init init_arch_irq(void)
 #endif
 
 		default:
-#ifdef CONFIG_IPIPE
-			irq_set_handler(irq, handle_level_irq);
-#else
 			irq_set_handler(irq, handle_simple_irq);
-#endif
 			break;
 		}
 	}
@@ -1254,113 +1237,3 @@ void do_irq(int vec, struct pt_regs *fp)
 		return;
 	asm_do_IRQ(irq, fp);
 }
-
-#ifdef CONFIG_IPIPE
-
-int __ipipe_get_irq_priority(unsigned irq)
-{
-	int ient, prio;
-
-	if (irq <= IRQ_CORETMR)
-		return irq;
-
-#ifdef SEC_GCTL
-	if (irq >= BFIN_IRQ(0))
-		return IVG11;
-#else
-	for (ient = 0; ient < NR_PERI_INTS; ient++) {
-		struct ivgx *ivg = ivg_table + ient;
-		if (ivg->irqno == irq) {
-			for (prio = 0; prio <= IVG13-IVG7; prio++) {
-				if (ivg7_13[prio].ifirst <= ivg &&
-				    ivg7_13[prio].istop > ivg)
-					return IVG7 + prio;
-			}
-		}
-	}
-#endif
-
-	return IVG15;
-}
-
-/* Hw interrupts are disabled on entry (check SAVE_CONTEXT). */
-#ifdef CONFIG_DO_IRQ_L1
-__attribute__((l1_text))
-#endif
-asmlinkage int __ipipe_grab_irq(int vec, struct pt_regs *regs)
-{
-	struct ipipe_percpu_domain_data *p = ipipe_root_cpudom_ptr();
-	struct ipipe_domain *this_domain = __ipipe_current_domain;
-	int irq, s = 0;
-
-	irq = vec_to_irq(vec);
-	if (irq == -1)
-		return 0;
-
-	if (irq == IRQ_SYSTMR) {
-#if !defined(CONFIG_GENERIC_CLOCKEVENTS) || defined(CONFIG_TICKSOURCE_GPTMR0)
-		bfin_write_TIMER_STATUS(1); /* Latch TIMIL0 */
-#endif
-		/* This is basically what we need from the register frame. */
-		__this_cpu_write(__ipipe_tick_regs.ipend, regs->ipend);
-		__this_cpu_write(__ipipe_tick_regs.pc, regs->pc);
-		if (this_domain != ipipe_root_domain)
-			__this_cpu_and(__ipipe_tick_regs.ipend, ~0x10);
-		else
-			__this_cpu_or(__ipipe_tick_regs.ipend, 0x10);
-	}
-
-	/*
-	 * We don't want Linux interrupt handlers to run at the
-	 * current core priority level (i.e. < EVT15), since this
-	 * might delay other interrupts handled by a high priority
-	 * domain. Here is what we do instead:
-	 *
-	 * - we raise the SYNCDEFER bit to prevent
-	 * __ipipe_handle_irq() to sync the pipeline for the root
-	 * stage for the incoming interrupt. Upon return, that IRQ is
-	 * pending in the interrupt log.
-	 *
-	 * - we raise the TIF_IRQ_SYNC bit for the current thread, so
-	 * that _schedule_and_signal_from_int will eventually sync the
-	 * pipeline from EVT15.
-	 */
-	if (this_domain == ipipe_root_domain) {
-		s = __test_and_set_bit(IPIPE_SYNCDEFER_FLAG, &p->status);
-		barrier();
-	}
-
-	ipipe_trace_irq_entry(irq);
-	__ipipe_handle_irq(irq, regs);
-	ipipe_trace_irq_exit(irq);
-
-	if (user_mode(regs) &&
-	    !ipipe_test_foreign_stack() &&
-	    (current->ipipe_flags & PF_EVTRET) != 0) {
-		/*
-		 * Testing for user_regs() does NOT fully eliminate
-		 * foreign stack contexts, because of the forged
-		 * interrupt returns we do through
-		 * __ipipe_call_irqtail. In that case, we might have
-		 * preempted a foreign stack context in a high
-		 * priority domain, with a single interrupt level now
-		 * pending after the irqtail unwinding is done. In
-		 * which case user_mode() is now true, and the event
-		 * gets dispatched spuriously.
-		 */
-		current->ipipe_flags &= ~PF_EVTRET;
-		__ipipe_dispatch_event(IPIPE_EVENT_RETURN, regs);
-	}
-
-	if (this_domain == ipipe_root_domain) {
-		set_thread_flag(TIF_IRQ_SYNC);
-		if (!s) {
-			__clear_bit(IPIPE_SYNCDEFER_FLAG, &p->status);
-			return !test_bit(IPIPE_STALL_FLAG, &p->status);
-		}
-	}
-
-	return 0;
-}
-
-#endif /* CONFIG_IPIPE */

@@ -27,24 +27,6 @@ static struct irqaction bfin_timer_irq = {
 	.name = "Blackfin Timer Tick",
 };
 
-#if defined(CONFIG_IPIPE)
-void __init setup_system_timer0(void)
-{
-	/* Power down the core timer, just to play safe. */
-	bfin_write_TCNTL(0);
-
-	disable_gptimers(TIMER0bit);
-	set_gptimer_status(0, TIMER_STATUS_TRUN0);
-	while (get_gptimer_status(0) & TIMER_STATUS_TRUN0)
-		udelay(10);
-
-	set_gptimer_config(0, 0x59); /* IRQ enable, periodic, PWM_OUT, SCLKed, OUT PAD disabled */
-	set_gptimer_period(TIMER0_id, get_sclk() / HZ);
-	set_gptimer_pwidth(TIMER0_id, 1);
-	SSYNC();
-	enable_gptimers(TIMER0bit);
-}
-#else
 void __init setup_core_timer(void)
 {
 	u32 tcount;
@@ -65,20 +47,13 @@ void __init setup_core_timer(void)
 
 	bfin_write_TCNTL(TAUTORLD | TMREN | TMPWR);
 }
-#endif
 
 static void __init
 time_sched_init(irqreturn_t(*timer_routine) (int, void *))
 {
-#if defined(CONFIG_IPIPE)
-	setup_system_timer0();
-	bfin_timer_irq.handler = timer_routine;
-	setup_irq(IRQ_TIMER0, &bfin_timer_irq);
-#else
 	setup_core_timer();
 	bfin_timer_irq.handler = timer_routine;
 	setup_irq(IRQ_CORETMR, &bfin_timer_irq);
-#endif
 }
 
 #ifdef CONFIG_ARCH_USES_GETTIMEOFFSET
@@ -90,14 +65,6 @@ static u32 blackfin_gettimeoffset(void)
 	unsigned long offset;
 	unsigned long clocks_per_jiffy;
 
-#if defined(CONFIG_IPIPE)
-	clocks_per_jiffy = bfin_read_TIMER0_PERIOD();
-	offset = bfin_read_TIMER0_COUNTER() / \
-		(((clocks_per_jiffy + 1) * HZ) / USEC_PER_SEC);
-
-	if ((get_gptimer_status(0) & TIMER_STATUS_TIMIL0) && offset < (100000 / HZ / 2))
-		offset += (USEC_PER_SEC / HZ);
-#else
 	clocks_per_jiffy = bfin_read_TPERIOD();
 	offset = (clocks_per_jiffy - bfin_read_TCOUNT()) / \
 		(((clocks_per_jiffy + 1) * HZ) / USEC_PER_SEC);
@@ -106,7 +73,7 @@ static u32 blackfin_gettimeoffset(void)
 	if ((bfin_read_ILAT() & (1 << IRQ_CORETMR))
 		&& (offset < (100000 / HZ / 2)))
 		offset += (USEC_PER_SEC / HZ);
-#endif
+
 	return offset;
 }
 #endif
@@ -122,11 +89,7 @@ irqreturn_t timer_interrupt(int irq, void *dummy)
 {
 	xtime_update(1);
 
-#ifdef CONFIG_IPIPE
-	update_root_process_times(get_irq_regs());
-#else
 	update_process_times(user_mode(get_irq_regs()));
-#endif
 	profile_tick(CPU_PROFILING);
 
 	return IRQ_HANDLED;

@@ -25,14 +25,6 @@
 #define SAVE_ALL_SYS		save_context_no_interrupts
 /* This is used for all normal interrupts.  It saves a minimum of registers
    to the stack, loads the IRQ number, and jumps to common code.  */
-#ifdef CONFIG_IPIPE
-# define LOAD_IPIPE_IPEND \
-	P0.l = lo(IPEND); \
-	P0.h = hi(IPEND); \
-	R1 = [P0];
-#else
-# define LOAD_IPIPE_IPEND
-#endif
 
 /*
  * Workaround for anomalies 05000283 and 05000315
@@ -60,7 +52,6 @@
     [--sp] = R0;	/*orig_r0*/					\
     [--sp] = (R7:0,P5:0);						\
     R0 = (N);								\
-    LOAD_IPIPE_IPEND							\
     jump __common_int_entry;
 # else /* CONFIG_DEBUG_KERNEL */
 #define INTERRUPT_ENTRY(N)						\
@@ -72,7 +63,6 @@
     p0.h = hi(IPEND);							\
     r1 = [p0];								\
     R0 = (N);								\
-    LOAD_IPIPE_IPEND							\
     jump __common_int_entry;
 # endif /* CONFIG_DEBUG_KERNEL */
 
@@ -125,7 +115,6 @@
     p0.h = hi(IPEND);							\
     r1 = [p0];								\
     R0 = (N);								\
-    LOAD_IPIPE_IPEND							\
     jump __common_int_entry;						\
 1:  ASTAT = R1;								\
     RAISE N;								\

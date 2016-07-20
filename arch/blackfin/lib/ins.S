@@ -11,29 +11,9 @@
 
 .align 2
 
-#ifdef CONFIG_IPIPE
-# define DO_CLI \
-	[--sp] = rets; \
-	[--sp] = (P5:0); \
-	sp += -12; \
-	call ___ipipe_disable_root_irqs_hw; \
-	sp += 12; \
-	(P5:0) = [sp++];
-# define CLI_INNER_NOP
-#else
 # define DO_CLI cli R3;
 # define CLI_INNER_NOP nop; nop; nop;
-#endif
-
-#ifdef CONFIG_IPIPE
-# define DO_STI \
-	sp += -12; \
-	call ___ipipe_enable_root_irqs_hw; \
-	sp += 12; \
-2:	rets = [sp++];
-#else
 # define DO_STI 2: sti R3;
-#endif
 
 #ifdef CONFIG_BFIN_INS_LOWOVERHEAD
 # define CLI_OUTER DO_CLI;
