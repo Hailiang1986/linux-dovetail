@@ -7,8 +7,9 @@ SMP=$3
 PREEMPT=$4
 PREEMPT_DYNAMIC=$5
 PREEMPT_RT=$6
-CC_VERSION="$7"
-LD=$8
+IRQPIPE=$7
+CC_VERSION="$8"
+LD=$9
 
 # Do not expand names
 set -f
@@ -42,6 +43,7 @@ fi
 UTS_VERSION="#$VERSION"
 CONFIG_FLAGS=""
 if [ -n "$SMP" ] ; then CONFIG_FLAGS="SMP"; fi
+if [ -n "$IRQPIPE" ] ; then CONFIG_FLAGS="IRQPIPE"; fi
 
 if [ -n "$PREEMPT_RT" ] ; then
 	CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT_RT"
