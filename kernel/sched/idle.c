@@ -78,27 +78,35 @@ void __weak arch_cpu_idle_dead(void) { }
 void __weak arch_cpu_idle(void)
 {
 	cpu_idle_force_poll = 1;
-	local_irq_enable();
+	hard_local_irq_enable();
 }
 
 /**
  * default_idle_call - Default CPU idle routine.
  *
  * To use when the cpuidle framework cannot be used.
+ *
+ * When interrupts are pipelined, this call is entered with hard irqs
+ * on and the in-band stage is stalled. Returns with hard irqs on,
+ * in-band stage stalled.
  */
 void __cpuidle default_idle_call(void)
 {
 	if (current_clr_polling_and_test()) {
-		local_irq_enable();
+		local_irq_enable_full();
 	} else {
-
-		trace_cpu_idle(1, smp_processor_id());
-		stop_critical_timings();
-		rcu_idle_enter();
-		arch_cpu_idle();
-		rcu_idle_exit();
-		start_critical_timings();
-		trace_cpu_idle(PWR_EVENT_EXIT, smp_processor_id());
+		if (irq_cpuidle_enter(NULL, NULL)) {
+			trace_cpu_idle(1, smp_processor_id());
+			stop_critical_timings();
+			rcu_idle_enter();
+			arch_cpu_idle();
+			unstall_inband_nocheck();
+			rcu_idle_exit();
+			start_critical_timings();
+			trace_cpu_idle(PWR_EVENT_EXIT, smp_processor_id());
+		} else {
+			local_irq_enable_full();
+		}
 	}
 }
 
@@ -221,6 +229,13 @@ exit_idle:
 	__current_set_polling();
 
 	/*
+	 *  Catch mishandling of the CPU's interrupt disable flag when
+	 *  pipelining IRQs.
+	 */
+	if (WARN_ON_ONCE(irq_pipeline_debug() && hard_irqs_disabled()))
+		hard_local_irq_enable();
+
+	/*
 	 * It is up to the idle functions to reenable local interrupts
 	 */
 	if (WARN_ON_ONCE(irqs_disabled()))
@@ -271,6 +286,7 @@ static void do_idle(void)
 			cpu_idle_poll();
 		} else {
 			cpuidle_idle_call();
+			WARN_ON_ONCE(irq_pipeline_debug() && hard_irqs_disabled());
 		}
 		arch_cpu_idle_exit();
 	}
