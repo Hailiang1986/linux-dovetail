@@ -18,6 +18,7 @@
 #include <linux/build_bug.h>
 #include <linux/static_call_types.h>
 #include <asm/byteorder.h>
+#include <asm-generic/irq_pipeline.h>
 
 #include <uapi/linux/kernel.h>
 
@@ -93,7 +94,7 @@ static __always_inline void might_resched(void)
 
 #else
 
-# define might_resched() do { } while (0)
+# define might_resched() check_inband_stage()
 
 #endif /* CONFIG_PREEMPT_* */
 
