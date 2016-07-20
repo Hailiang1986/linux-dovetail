@@ -75,6 +75,14 @@ enum irqchip_irq_state;
  *				  it from the spurious interrupt detection
  *				  mechanism and from core side polling.
  * IRQ_DISABLE_UNLAZY		- Disable lazy irq disable
+ * IRQ_OOB                      - Interrupt can be delivered to the out-of-band handler
+ *                                when pipelining is enabled (CONFIG_IRQ_PIPELINE),
+ *                                regardless of the (virtualized) interrupt state
+ *                                maintained by local_irq_save/disable().
+ * IRQ_STICKY                   - Interrupt should be dispatched to the preempted
+ *                                interrupt stage.
+ *                                in non-maskable mode regardless of stage priorities.
+ * IRQ_CHAINED                  - Interrupt is chained.
  */
 enum {
 	IRQ_TYPE_NONE		= 0x00000000,
@@ -101,13 +109,16 @@ enum {
 	IRQ_PER_CPU_DEVID	= (1 << 17),
 	IRQ_IS_POLLED		= (1 << 18),
 	IRQ_DISABLE_UNLAZY	= (1 << 19),
+	IRQ_OOB			= (1 << 19),
+	IRQ_STICKY		= (1 << 20),
+	IRQ_CHAINED		= (1 << 21),
 };
 
 #define IRQF_MODIFY_MASK	\
 	(IRQ_TYPE_SENSE_MASK | IRQ_NOPROBE | IRQ_NOREQUEST | \
 	 IRQ_NOAUTOEN | IRQ_MOVE_PCNTXT | IRQ_LEVEL | IRQ_NO_BALANCING | \
 	 IRQ_PER_CPU | IRQ_NESTED_THREAD | IRQ_NOTHREAD | IRQ_PER_CPU_DEVID | \
-	 IRQ_IS_POLLED | IRQ_DISABLE_UNLAZY)
+	 IRQ_IS_POLLED | IRQ_DISABLE_UNLAZY | IRQ_OOB | IRQ_STICKY)
 
 #define IRQ_NO_BALANCING_MASK	(IRQ_PER_CPU | IRQ_NO_BALANCING)
 
@@ -462,6 +473,9 @@ struct irq_chip {
 	void		(*irq_unmask)(struct irq_data *data);
 	void		(*irq_eoi)(struct irq_data *data);
 
+	void		(*irq_hold)(struct irq_data *data);
+	void		(*irq_release)(struct irq_data *data);
+
 	int		(*irq_set_affinity)(struct irq_data *data, const struct cpumask *dest, bool force);
 	int		(*irq_retrigger)(struct irq_data *data);
 	int		(*irq_set_type)(struct irq_data *data, unsigned int flow_type);
@@ -508,6 +522,7 @@ struct irq_chip {
  * IRQCHIP_SKIP_SET_WAKE:	Skip chip.irq_set_wake(), for this irq chip
  * IRQCHIP_ONESHOT_SAFE:	One shot does not require mask/unmask
  * IRQCHIP_EOI_THREADED:	Chip requires eoi() on unmask in threaded mode
+ * IRQCHIP_PIPELINE_SAFE:	Chip can work in pipelined mode
  */
 enum {
 	IRQCHIP_SET_TYPE_MASKED		= (1 <<  0),
@@ -517,6 +532,7 @@ enum {
 	IRQCHIP_SKIP_SET_WAKE		= (1 <<  4),
 	IRQCHIP_ONESHOT_SAFE		= (1 <<  5),
 	IRQCHIP_EOI_THREADED		= (1 <<  6),
+	IRQCHIP_PIPELINE_SAFE		= (1 <<  7),
 };
 
 #include <linux/irqdesc.h>
@@ -590,6 +606,7 @@ extern void handle_percpu_irq(struct irq_desc *desc);
 extern void handle_percpu_devid_irq(struct irq_desc *desc);
 extern void handle_bad_irq(struct irq_desc *desc);
 extern void handle_nested_irq(unsigned int irq);
+extern void handle_synthetic_irq(struct irq_desc *desc);
 
 extern int irq_chip_compose_msi_msg(struct irq_data *data, struct msi_msg *msg);
 extern int irq_chip_pm_get(struct irq_data *data);
@@ -604,6 +621,8 @@ extern int irq_chip_retrigger_hierarchy(struct irq_data *data);
 extern void irq_chip_mask_parent(struct irq_data *data);
 extern void irq_chip_unmask_parent(struct irq_data *data);
 extern void irq_chip_eoi_parent(struct irq_data *data);
+extern void irq_chip_hold_parent(struct irq_data *data);
+extern void irq_chip_release_parent(struct irq_data *data);
 extern int irq_chip_set_affinity_parent(struct irq_data *data,
 					const struct cpumask *dest,
 					bool force);
@@ -728,7 +747,13 @@ extern int irq_set_irq_type(unsigned int irq, unsigned int type);
 extern int irq_set_msi_desc(unsigned int irq, struct msi_desc *entry);
 extern int irq_set_msi_desc_off(unsigned int irq_base, unsigned int irq_offset,
 				struct msi_desc *entry);
-extern struct irq_data *irq_get_irq_data(unsigned int irq);
+
+static inline struct irq_data *irq_get_irq_data(unsigned int irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+
+	return desc ? &desc->irq_data : NULL;
+}
 
 static inline struct irq_chip *irq_get_chip(unsigned int irq)
 {
@@ -1100,6 +1125,12 @@ static inline struct irq_chip_type *irq_data_get_chip_type(struct irq_data *d)
 }
 
 #define IRQ_MSK(n) (u32)((n) < 32 ? ((1 << (n)) - 1) : UINT_MAX)
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+int irq_switch_oob(unsigned int irq, bool on);
+
+#endif	/* !CONFIG_IRQ_PIPELINE */
 
 #ifdef CONFIG_SMP
 static inline void irq_gc_lock(struct irq_chip_generic *gc)

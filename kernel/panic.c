@@ -24,6 +24,7 @@
 #include <linux/sysrq.h>
 #include <linux/init.h>
 #include <linux/nmi.h>
+#include <linux/irq_pipeline.h>
 #include <linux/console.h>
 #include <linux/bug.h>
 #include <linux/ratelimit.h>
@@ -475,6 +476,7 @@ void oops_enter(void)
 {
 	tracing_off();
 	/* can't trust the integrity of the kernel anymore: */
+	irq_pipeline_oops();
 	debug_locks_off();
 	do_oops_enter_exit();
 }

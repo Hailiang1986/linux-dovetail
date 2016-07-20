@@ -17,6 +17,7 @@
 #include <linux/pm_qos.h>
 #include <linux/cpu.h>
 #include <linux/cpuidle.h>
+#include <linux/irq_pipeline.h>
 #include <linux/ktime.h>
 #include <linux/hrtimer.h>
 #include <linux/module.h>
@@ -196,6 +197,15 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	s64 diff;
 
 	/*
+	 * A co-kernel running on the head stage of the IRQ pipeline
+	 * may deny this switch.
+	 */
+	if (!irq_cpuidle_enter(dev, target_state)) {
+		irq_cpuidle_exit();
+		return -EBUSY;
+	}
+
+	/*
 	 * Tell the time framework to switch to a broadcast timer because our
 	 * local timer will be shut down.  If a local timer is used from another
 	 * CPU as a broadcast timer, this call may fail if it is not available.
@@ -236,7 +246,7 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	}
 
 	if (!cpuidle_state_is_coupled(drv, index))
-		local_irq_enable();
+		local_irq_enable_full();
 
 	diff = ktime_us_delta(time_end, time_start);
 	if (diff > INT_MAX)
@@ -254,6 +264,8 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	} else {
 		dev->last_residency = 0;
 	}
+
+	irq_cpuidle_exit();
 
 	return entered_state;
 }

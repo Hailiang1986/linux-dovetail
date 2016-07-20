@@ -63,6 +63,16 @@
  *                interrupt handler after suspending interrupts. For system
  *                wakeup devices users need to implement wakeup detection in
  *                their interrupt handlers.
+ * IRQF_OOB - Interrupt is attached to an out-of-band handler living
+ *            on the heading stage of the interrupt pipeline
+ *            (CONFIG_IRQ_PIPELINE).  It may be delivered to the
+ *            handler any time interrupts are enabled in the CPU,
+ *            regardless of the (virtualized) interrupt state
+ *            maintained by local_irq_save/disable().
+ * IRQF_STICKY - A stricky interrupt is delivered to the current
+ *               interrupt stage which receives it, regardless of
+ *               stage priorities. IRQF_STICKY is meaningful only with
+ *               IRQF_OOB.
  */
 #define IRQF_SHARED		0x00000080
 #define IRQF_PROBE_SHARED	0x00000100
@@ -76,6 +86,8 @@
 #define IRQF_NO_THREAD		0x00010000
 #define IRQF_EARLY_RESUME	0x00020000
 #define IRQF_COND_SUSPEND	0x00040000
+#define IRQF_OOB		0x00080000
+#define IRQF_STICKY		0x00100000
 
 #define IRQF_TIMER		(__IRQF_TIMER | IRQF_NO_SUSPEND | IRQF_NO_THREAD)
 

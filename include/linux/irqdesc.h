@@ -176,6 +176,9 @@ static inline int handle_domain_irq(struct irq_domain *domain,
 {
 	return __handle_domain_irq(domain, hwirq, true, regs);
 }
+
+int do_domain_irq(unsigned int irq, struct pt_regs *regs);
+
 #endif
 
 /* Test to see if a driver has successfully requested an irq */
@@ -252,6 +255,14 @@ static inline bool irq_is_percpu_devid(unsigned int irq)
 
 	desc = irq_to_desc(irq);
 	return desc->status_use_accessors & IRQ_PER_CPU_DEVID;
+}
+
+static inline int irq_is_oob(unsigned int irq)
+{
+	struct irq_desc *desc;
+
+	desc = irq_to_desc(irq);
+	return desc->status_use_accessors & IRQ_OOB;
 }
 
 static inline void

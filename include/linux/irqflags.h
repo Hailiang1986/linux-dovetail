@@ -13,6 +13,7 @@
 #define _LINUX_TRACE_IRQFLAGS_H
 
 #include <linux/typecheck.h>
+#include <asm-generic/irq_pipeline.h>
 #include <asm/irqflags.h>
 
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -138,6 +139,16 @@ do {						\
 #define safe_halt()		do { raw_safe_halt(); } while (0)
 
 #endif /* CONFIG_TRACE_IRQFLAGS */
+
+#ifdef CONFIG_IRQ_PIPELINE
+#define local_irq_enable_full()			\
+	do {					\
+		hard_local_irq_enable();	\
+		local_irq_enable();		\
+	} while (0)
+#else
+#define local_irq_enable_full()	local_irq_enable()
+#endif
 
 #define local_save_flags(flags)	raw_local_save_flags(flags)
 

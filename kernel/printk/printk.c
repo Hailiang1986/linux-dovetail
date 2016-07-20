@@ -48,6 +48,7 @@
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
+#include <linux/irqstage.h>
 
 #include <linux/uaccess.h>
 #include <asm/sections.h>
@@ -3374,6 +3375,11 @@ void dump_stack_print_info(const char *log_lvl)
 	if (dump_stack_arch_desc_str[0] != '\0')
 		printk("%sHardware name: %s\n",
 		       log_lvl, dump_stack_arch_desc_str);
+
+#ifdef CONFIG_IRQ_PIPELINE
+	printk("%sIRQ stage: %s\n",
+	       log_lvl, current_irq_stage->name);
+#endif
 
 	print_worker_info(log_lvl, current);
 }
