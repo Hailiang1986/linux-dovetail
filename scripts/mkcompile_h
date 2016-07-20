@@ -6,7 +6,8 @@ ARCH=$2
 SMP=$3
 PREEMPT=$4
 PREEMPT_RT=$5
-CC=$6
+IRQPIPE=$6
+CC=$7
 
 vecho() { [ "${quiet}" = "silent_" ] || echo "$@" ; }
 
@@ -55,6 +56,7 @@ CONFIG_FLAGS=""
 if [ -n "$SMP" ] ; then CONFIG_FLAGS="SMP"; fi
 if [ -n "$PREEMPT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT"; fi
 if [ -n "$PREEMPT_RT" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS PREEMPT_RT"; fi
+if [ -n "$IRQPIPE" ] ; then CONFIG_FLAGS="$CONFIG_FLAGS IRQPIPE"; fi
 UTS_VERSION="$UTS_VERSION $CONFIG_FLAGS $TIMESTAMP"
 
 # Truncate to maximum length
