@@ -3879,6 +3879,8 @@ static inline void schedule_debug(struct task_struct *prev, bool preempt)
 		panic("corrupted stack end detected inside scheduler\n");
 #endif
 
+	check_inband_stage();
+
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 	if (!preempt && prev->state && prev->non_block_count) {
 		printk(KERN_ERR "BUG: scheduling in a non-blocking section: %s/%d/%i\n",
@@ -4258,7 +4260,7 @@ asmlinkage __visible void __sched notrace preempt_schedule(void)
 	 * If there is a non-zero preempt_count or interrupts are disabled,
 	 * we do not want to preempt the current task. Just return..
 	 */
-	if (likely(!preemptible()))
+	if (likely(!running_inband() || !preemptible()))
 		return;
 
 	preempt_schedule_common();
@@ -4284,7 +4286,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_notrace(void)
 {
 	enum ctx_state prev_ctx;
 
-	if (likely(!preemptible()))
+	if (likely(!running_inband() || !preemptible()))
 		return;
 
 	do {
@@ -4320,6 +4322,28 @@ EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 
 #endif /* CONFIG_PREEMPTION */
 
+#ifdef CONFIG_IRQ_PIPELINE
+static inline void preempt_sync_inband_irqs(void)
+{
+	struct irq_stage_data *p;
+
+	hard_local_irq_disable();
+	p = this_inband_staged();
+	if (unlikely(stage_irqs_pending(p))) {
+		preempt_disable();
+		trace_hardirqs_on();
+		clear_stage_bit(STAGE_STALL_BIT, p);
+		sync_current_irq_stage();
+		preempt_enable_no_resched_notrace();
+	} else
+		clear_stage_bit(STAGE_STALL_BIT, p);
+
+	/* hard IRQs are left disabled. */
+}
+#else
+static inline void preempt_sync_inband_irqs(void) { }
+#endif
+
 /*
  * This is the entry point to schedule() from kernel preemption
  * off of irq context.
@@ -4329,6 +4353,16 @@ EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 asmlinkage __visible void __sched preempt_schedule_irq(void)
 {
 	enum ctx_state prev_state;
+
+	if (irqs_pipelined()) {
+		if (irq_pipeline_debug()) {
+			WARN_ON_ONCE(!running_inband());
+			WARN_ON_ONCE(!hard_irqs_disabled());
+			WARN_ON_ONCE(irqs_disabled());
+		}
+		local_irq_disable();
+		hard_local_irq_enable();
+	}
 
 	/* Catch callers which need to be fixed */
 	BUG_ON(preempt_count() || !irqs_disabled());
@@ -4342,6 +4376,15 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 		local_irq_disable();
 		sched_preempt_enable_no_resched();
 	} while (need_resched());
+
+	/*
+	 * If pipelining interrupts, flush any pending IRQ that might
+	 * have been logged since the last time we stalled the in-band
+	 * stage. The caller is expected to call us back again until
+	 * need_resched is clear, so we just need to synchronize the
+	 * in-band stage log.
+	 */
+	preempt_sync_inband_irqs();
 
 	exception_exit(prev_state);
 }

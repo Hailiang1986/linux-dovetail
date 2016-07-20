@@ -6,6 +6,7 @@
 #include <linux/lockdep.h>
 #include <linux/ftrace_irq.h>
 #include <linux/vtime.h>
+#include <asm-generic/irq_pipeline.h>
 #include <asm/hardirq.h>
 
 
@@ -44,6 +45,7 @@ extern void rcu_nmi_exit(void);
  * Enter irq context (on NO_HZ, update jiffies):
  */
 extern void irq_enter(void);
+void irq_enter_if_inband(void);
 
 /*
  * Exit irq context without processing softirqs:
@@ -59,6 +61,7 @@ extern void irq_enter(void);
  * Exit irq context and process softirqs if needed:
  */
 extern void irq_exit(void);
+void irq_exit_if_inband(void);
 
 #ifndef arch_nmi_enter
 #define arch_nmi_enter()	do { } while (0)
@@ -67,6 +70,7 @@ extern void irq_exit(void);
 
 #define nmi_enter()						\
 	do {							\
+		irq_pipeline_nmi_enter();			\
 		arch_nmi_enter();				\
 		printk_nmi_enter();				\
 		lockdep_off();					\
@@ -87,6 +91,22 @@ extern void irq_exit(void);
 		lockdep_on();					\
 		printk_nmi_exit();				\
 		arch_nmi_exit();				\
+		irq_pipeline_nmi_exit();			\
 	} while (0)
+
+static inline bool start_irq_flow(void)
+{
+	return !irqs_pipelined() || in_pipeline();
+}
+
+static inline bool on_pipeline_entry(void)
+{
+	return irqs_pipelined() && in_pipeline();
+}
+
+static inline bool in_hard_irq(void)
+{
+	return irqs_pipelined() ? in_pipeline() : in_irq();
+}
 
 #endif /* LINUX_HARDIRQ_H */
