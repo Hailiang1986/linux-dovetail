@@ -2673,5 +2673,38 @@ void __init setup_nr_node_ids(void);
 static inline void setup_nr_node_ids(void) {}
 #endif
 
+#ifdef CONFIG_FORCE_COMMIT_MEMORY
+
+int commit_vma(struct mm_struct *mm, struct vm_area_struct *vma);
+int force_commit_memory(void);
+void pin_mapping_globally(unsigned long start,
+			  unsigned long end);
+void arch_pin_mapping_globally(unsigned long start,
+			       unsigned long end);
+
+static inline bool memory_commit_forced(void)
+{
+	return IS_ENABLED(CONFIG_FORCE_COMMIT_MEMORY);
+}
+
+#else
+
+static inline
+void pin_mapping_globally(unsigned long start,
+			  unsigned long end) {}
+
+static inline bool memory_commit_forced(void)
+{
+	return false;
+}
+
+static inline
+int commit_vma(struct mm_struct *mm, struct vm_area_struct *vma)
+{
+	return 0;
+}
+
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */

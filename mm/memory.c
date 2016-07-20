@@ -935,6 +935,8 @@ out:
 }
 #endif
 
+static inline void cow_user_page(struct page *dst, struct page *src,
+				 unsigned long va, struct vm_area_struct *vma);
 /*
  * copy one vm_area from one task to the other. Assumes the page tables
  * already present in the new task to be cleared in the whole range
@@ -944,7 +946,7 @@ out:
 static inline unsigned long
 copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 		pte_t *dst_pte, pte_t *src_pte, struct vm_area_struct *vma,
-		unsigned long addr, int *rss)
+		unsigned long addr, int *rss, struct page *uncow_page)
 {
 	unsigned long vm_flags = vma->vm_flags;
 	pte_t pte = *src_pte;
@@ -1022,6 +1024,19 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	 * in the parent and the child
 	 */
 	if (is_cow_mapping(vm_flags)) {
+		if (memory_commit_forced() && uncow_page) {
+			struct page *old_page = vm_normal_page(vma, addr, pte);
+			cow_user_page(uncow_page, old_page, addr, vma);
+			pte = mk_pte(uncow_page, vma->vm_page_prot);
+
+			if (vm_flags & VM_SHARED)
+				pte = pte_mkclean(pte);
+			pte = pte_mkold(pte);
+
+			page_add_new_anon_rmap(uncow_page, vma, addr, false);
+			rss[!!PageAnon(uncow_page)]++;
+			goto out_set_pte;
+		}
 		ptep_set_wrprotect(src_mm, addr, src_pte);
 		pte = pte_wrprotect(pte);
 	}
@@ -1069,13 +1084,25 @@ static int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	int progress = 0;
 	int rss[NR_MM_COUNTERS];
 	swp_entry_t entry = (swp_entry_t){0};
-
+	struct page *uncow_page = NULL;
+	int do_cow_break = 0;
 again:
+ 	if (do_cow_break) {
+		/* Optimized out if FORCE_COMMIT_MEMORY is disabled */
+ 		uncow_page = alloc_page_vma(GFP_HIGHUSER, vma, addr);
+		if (uncow_page == NULL)
+ 			return -ENOMEM;
+		do_cow_break = 0;
+	}
+
 	init_rss_vec(rss);
 
 	dst_pte = pte_alloc_map_lock(dst_mm, dst_pmd, addr, &dst_ptl);
-	if (!dst_pte)
+	if (!dst_pte) {
+		if (uncow_page)
+			put_page(uncow_page);
 		return -ENOMEM;
+	}
 	src_pte = pte_offset_map(src_pmd, addr);
 	src_ptl = pte_lockptr(src_mm, src_pmd);
 	spin_lock_nested(src_ptl, SINGLE_DEPTH_NESTING);
@@ -1098,8 +1125,24 @@ again:
 			progress++;
 			continue;
 		}
+		if (memory_commit_forced() &&
+		    uncow_page == NULL && pte_present(*src_pte)) {
+			if (is_cow_mapping(vma->vm_flags) &&
+			    test_bit(MMF_VM_PINNED, &src_mm->flags) &&
+			    ((vma->vm_flags|src_mm->def_flags) & VM_LOCKED)) {
+				arch_leave_lazy_mmu_mode();
+				spin_unlock(src_ptl);
+				pte_unmap(src_pte);
+				add_mm_rss_vec(dst_mm, rss);
+				pte_unmap_unlock(dst_pte, dst_ptl);
+				cond_resched();
+				do_cow_break = 1;
+				goto again;
+			}
+		}
 		entry.val = copy_one_pte(dst_mm, src_mm, dst_pte, src_pte,
-							vma, addr, rss);
+					 vma, addr, rss, uncow_page);
+		uncow_page = NULL;
 		if (entry.val)
 			break;
 		progress += 8;
@@ -4710,6 +4753,82 @@ long copy_huge_page_from_user(struct page *dst_page,
 	return ret_val;
 }
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE || CONFIG_HUGETLBFS */
+
+#ifdef CONFIG_FORCE_COMMIT_MEMORY
+
+int commit_vma(struct mm_struct *mm, struct vm_area_struct *vma)
+{
+	unsigned int gup_flags;
+	int ret, npages;
+
+	if (vma->vm_flags & (VM_IO | VM_PFNMAP))
+		return 0;
+
+	if (!((vma->vm_flags & VM_DONTEXPAND) ||
+	    is_vm_hugetlb_page(vma) || vma == get_gate_vma(mm))) {
+		ret = populate_vma_page_range(vma, vma->vm_start, vma->vm_end,
+					      NULL);
+		return ret < 0 ? ret : 0;
+	}
+
+	gup_flags = (vma->vm_flags & (VM_WRITE | VM_SHARED)) == VM_WRITE
+		? FOLL_WRITE : 0;
+	npages = DIV_ROUND_UP(vma->vm_end, PAGE_SIZE) - vma->vm_start/PAGE_SIZE;
+	ret = get_user_pages(vma->vm_start, npages, gup_flags, NULL, NULL);
+	if (ret < 0)
+		return ret;
+
+	return ret == npages ? 0 : -EFAULT;
+}
+
+int force_commit_memory(void)
+{
+	struct task_struct *tsk = current;
+	struct vm_area_struct *vma;
+	struct mm_struct *mm;
+	int ret = 0;
+
+	mm = get_task_mm(tsk);
+	if (!mm)
+		return -EPERM;
+
+	down_write(&mm->mmap_sem);
+	if (test_bit(MMF_VM_PINNED, &mm->flags))
+		goto done_mm;
+
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
+		if (is_cow_mapping(vma->vm_flags) &&
+		    (vma->vm_flags & VM_WRITE)) {
+			ret = commit_vma(mm, vma);
+			if (ret < 0)
+				goto done_mm;
+		}
+	}
+	set_bit(MMF_VM_PINNED, &mm->flags);
+done_mm:
+	up_write(&mm->mmap_sem);
+	mmput(mm);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(force_commit_memory);
+
+void __weak arch_pin_mapping_globally(unsigned long start, unsigned long end)
+{
+}
+
+void pin_mapping_globally(unsigned long start, unsigned long end)
+{
+	/*
+	 * APEI may invoke this for temporarily remapping pages in
+	 * interrupt context - nothing we can and need to propagate
+	 * globally.
+	 */
+	if (!in_interrupt())
+		arch_pin_mapping_globally(start, end);
+}
+
+#endif	/* CONFIG_FORCE_COMMIT_MEMORY */
 
 #if USE_SPLIT_PTE_PTLOCKS && ALLOC_SPLIT_PTLOCKS
 

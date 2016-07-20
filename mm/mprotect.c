@@ -294,6 +294,12 @@ unsigned long change_protection(struct vm_area_struct *vma, unsigned long start,
 	else
 		pages = change_protection_range(vma, start, end, newprot, dirty_accountable, prot_numa);
 
+	if (memory_commit_forced() && !prot_numa &&
+	    test_bit(MMF_VM_PINNED, &vma->vm_mm->flags) &&
+	    ((vma->vm_flags | vma->vm_mm->def_flags) & VM_LOCKED) &&
+	    (vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC)))
+		commit_vma(vma->vm_mm, vma);
+
 	return pages;
 }
 

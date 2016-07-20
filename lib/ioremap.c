@@ -177,6 +177,7 @@ int ioremap_page_range(unsigned long addr,
 			break;
 	} while (pgd++, addr = next, addr != end);
 
+	pin_mapping_globally(start, end);
 	flush_cache_vmap(start, end);
 
 	return err;
