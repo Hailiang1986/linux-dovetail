@@ -6,9 +6,11 @@
 
 #include <linux/kernel.h>
 #include <linux/export.h>
+#include <linux/hardirq.h>
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
 #include <linux/smp.h>
+#include <linux/irqstage.h>
 #include <linux/atomic.h>
 #include <linux/kexec.h>
 #include <linux/utsname.h>
@@ -57,6 +59,11 @@ void dump_stack_print_info(const char *log_lvl)
 		printk("%sHardware name: %s\n",
 		       log_lvl, dump_stack_arch_desc_str);
 
+#ifdef CONFIG_IRQ_PIPELINE
+	printk("%sIRQ stage: %s\n",
+	       log_lvl, current_irq_stage->name);
+#endif
+
 	print_worker_info(log_lvl, current);
 	print_stop_info(log_lvl, current);
 }
@@ -87,6 +94,29 @@ static void __dump_stack(void)
 #ifdef CONFIG_SMP
 static atomic_t dump_lock = ATOMIC_INIT(-1);
 
+static unsigned long disable_local_irqs(void)
+{
+	unsigned long flags = 0; /* only to trick the UMR detection */
+
+	/*
+	 * We neither need nor want to disable in-band IRQs over the
+	 * oob stage, where CPU migration can't happen. Conversely, we
+	 * neither need nor want to disable hard IRQs from the oob
+	 * stage, so that latency won't skyrocket as a result of
+	 * dumping the stack backtrace.
+	 */
+	if (running_inband() && !on_pipeline_entry())
+		local_irq_save(flags);
+
+	return flags;
+}
+
+static void restore_local_irqs(unsigned long flags)
+{
+	if (running_inband() && !on_pipeline_entry())
+		local_irq_restore(flags);
+}
+
 asmlinkage __visible void dump_stack(void)
 {
 	unsigned long flags;
@@ -99,7 +129,7 @@ asmlinkage __visible void dump_stack(void)
 	 * against other CPUs
 	 */
 retry:
-	local_irq_save(flags);
+	flags = disable_local_irqs();
 	cpu = smp_processor_id();
 	old = atomic_cmpxchg(&dump_lock, -1, cpu);
 	if (old == -1) {
@@ -107,7 +137,7 @@ retry:
 	} else if (old == cpu) {
 		was_locked = 1;
 	} else {
-		local_irq_restore(flags);
+		restore_local_irqs(flags);
 		/*
 		 * Wait for the lock to release before jumping to
 		 * atomic_cmpxchg() in order to mitigate the thundering herd
@@ -122,7 +152,7 @@ retry:
 	if (!was_locked)
 		atomic_set(&dump_lock, -1);
 
-	local_irq_restore(flags);
+	restore_local_irqs(flags);
 }
 #else
 asmlinkage __visible void dump_stack(void)
