@@ -1016,6 +1016,7 @@ static int exec_mmap(struct mm_struct *mm)
 {
 	struct task_struct *tsk;
 	struct mm_struct *old_mm, *active_mm;
+	unsigned long flags;
 	int ret;
 
 	/* Notify parent that we're no longer interested in the old VM */
@@ -1047,8 +1048,10 @@ static int exec_mmap(struct mm_struct *mm)
 	active_mm = tsk->active_mm;
 	membarrier_exec_mmap(mm);
 	tsk->mm = mm;
+	protect_inband_mm(flags);
 	tsk->active_mm = mm;
 	activate_mm(active_mm, mm);
+	unprotect_inband_mm(flags);
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
 	task_unlock(tsk);
