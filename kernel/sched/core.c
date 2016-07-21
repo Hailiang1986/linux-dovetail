@@ -3967,6 +3967,8 @@ static inline void schedule_debug(struct task_struct *prev, bool preempt)
 		panic("corrupted stack end detected inside scheduler\n");
 #endif
 
+	check_inband_stage();
+
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 	if (!preempt && prev->state && prev->non_block_count) {
 		printk(KERN_ERR "BUG: scheduling in a non-blocking section: %s/%d/%i\n",
