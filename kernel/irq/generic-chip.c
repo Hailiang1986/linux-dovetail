@@ -160,6 +160,78 @@ void irq_gc_mask_disable_and_ack_set(struct irq_data *d)
 }
 
 /**
+ * irq_gc_mask_clr_ack_clr_bit - Mask and Ack pending interrupt by
+ * clearing bits.
+ * @d: irq_data
+ */
+void irq_gc_mask_clr_ack_clr_bit(struct irq_data *d)
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+	u32 mask = d->mask;
+
+	irq_gc_lock(gc);
+	*ct->mask_cache &= ~mask;
+	irq_reg_writel(gc, *ct->mask_cache, ct->regs.mask);
+	irq_reg_writel(gc, ~mask, ct->regs.ack);
+	irq_gc_unlock(gc);
+}
+
+/**
+ * irq_gc_mask_set_ack_clr_bit - Mask and Ack pending interrupt by
+ * setting and clearing bits respectively.
+ * @d: irq_data
+ */
+void irq_gc_mask_set_ack_clr_bit(struct irq_data *d)
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+	u32 mask = d->mask;
+
+	irq_gc_lock(gc);
+	*ct->mask_cache |= mask;
+	irq_reg_writel(gc, *ct->mask_cache, ct->regs.mask);
+	irq_reg_writel(gc, ~mask, ct->regs.ack);
+	irq_gc_unlock(gc);
+}
+
+/**
+ * irq_gc_mask_set_ack_set_bit - Mask and Ack pending interrupt by
+ * setting bits.
+ * @d: irq_data
+ */
+void irq_gc_mask_set_ack_set_bit(struct irq_data *d)
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+	u32 mask = d->mask;
+
+	irq_gc_lock(gc);
+	*ct->mask_cache |= mask;
+	irq_reg_writel(gc, *ct->mask_cache, ct->regs.mask);
+	irq_reg_writel(gc, mask, ct->regs.ack);
+	irq_gc_unlock(gc);
+}
+
+/**
+ * irq_gc_mask_set_ack_clr_bit - Mask and Ack pending interrupt by
+ * clearing and setting bits respectively.
+ * @d: irq_data
+ */
+void irq_gc_mask_clr_ack_set_bit(struct irq_data *d)
+{
+	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+	u32 mask = d->mask;
+
+	irq_gc_lock(gc);
+	*ct->mask_cache &= ~mask;
+	irq_reg_writel(gc, *ct->mask_cache, ct->regs.mask);
+	irq_reg_writel(gc, mask, ct->regs.ack);
+	irq_gc_unlock(gc);
+}
+
+/**
  * irq_gc_eoi - EOI interrupt
  * @d: irq_data
  */
