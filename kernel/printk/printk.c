@@ -2039,7 +2039,7 @@ asmlinkage __visible void early_printk(const char *fmt, ...)
 
 #ifdef CONFIG_RAW_PRINTK
 static struct console *raw_console;
-static DEFINE_RAW_SPINLOCK(raw_console_lock);
+static DEFINE_HARD_SPINLOCK(raw_console_lock);
 
 void raw_vprintk(const char *fmt, va_list ap)
 {
