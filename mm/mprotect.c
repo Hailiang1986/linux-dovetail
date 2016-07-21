@@ -41,7 +41,7 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 {
 	pte_t *pte, oldpte;
 	spinlock_t *ptl;
-	unsigned long pages = 0;
+	unsigned long pages = 0, flags;
 	int target_node = NUMA_NO_NODE;
 
 	/*
@@ -109,6 +109,7 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 					continue;
 			}
 
+			flags = hard_local_irq_save();
 			oldpte = ptep_modify_prot_start(vma, addr, pte);
 			ptent = pte_modify(oldpte, newprot);
 			if (preserve_write)
@@ -121,6 +122,7 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 				ptent = pte_mkwrite(ptent);
 			}
 			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
+			hard_local_irq_restore(flags);
 			pages++;
 		} else if (IS_ENABLED(CONFIG_MIGRATION)) {
 			swp_entry_t entry = pte_to_swp_entry(oldpte);
