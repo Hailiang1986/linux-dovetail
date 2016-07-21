@@ -24,6 +24,7 @@
 #include <linux/uaccess.h>
 #include <linux/irqdomain.h>
 #include <linux/irq_work.h>
+#include <linux/dovetail.h>
 #include "internals.h"
 
 struct irq_stage root_irq_stage = {
@@ -277,6 +278,7 @@ void __irq_pipeline_sync(struct irq_stage *top)
 			if (stage == &root_irq_stage)
 				irq_stage_sync_current();
 			else {
+				dovetail_clear_callouts(p);
 				/* Switch to head before synchronizing. */
 				irq_set_head_context(p);
 				irq_stage_sync_current();
@@ -1094,6 +1096,22 @@ static void enter_pipeline(unsigned int irq, bool sync, struct pt_regs *regs)
 	__enter_pipeline(irq, desc, sync);
 }
 
+void dovetail_mayday_hook(struct pt_regs *regs);
+
+static inline void check_pending_mayday(struct pt_regs *regs)
+{
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * Sending MAYDAY is in essence a rare case, so prefer test
+	 * then maybe clear over test_and_clear.
+	 */
+	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY)) {
+		clear_thread_flag(TIF_MAYDAY);
+		dovetail_mayday_hook(regs);
+	}
+#endif
+}
+
 /*
  * Inject a (likely pseudo-)IRQ into the pipeline from a hardware
  * event such as a trap. No flow handler will run for this IRQ.
@@ -1106,6 +1124,9 @@ void __irq_pipeline_enter(unsigned int irq, struct pt_regs *regs)
 		copy_timer_regs(desc, regs);
 
 	__enter_pipeline(irq, desc, true);
+
+	if (regs)
+		check_pending_mayday(regs);
 }
 
 /**
@@ -1120,6 +1141,7 @@ void __irq_pipeline_enter(unsigned int irq, struct pt_regs *regs)
 void irq_pipeline_enter(unsigned int irq, struct pt_regs *regs)
 {				/* hw interrupts off */
 	enter_pipeline(irq, true, regs);
+	check_pending_mayday(regs);
 }
 
 /**

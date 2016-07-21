@@ -29,6 +29,8 @@ extern struct irq_stage *head_irq_stage;
 #define STAGE_STALL_BIT		0
 /* Stall state upon NMI entry (root stage only). */
 #define STAGE_STALL_NMI_BIT	1
+/* Dovetail callout running */
+#define STAGE_CALLOUT_BIT	2
 
 struct irq_event_map;
 
@@ -49,6 +51,11 @@ struct irq_pipeline_data {
 	struct irq_stage_data stages[2];
 	struct irq_stage_data *curr;
 	struct pt_regs tick_regs;
+#ifdef CONFIG_DOVETAIL
+	struct task_struct *task_hijacked;
+	struct task_struct *rqlock_owner;
+	struct hypervisor_stall *vm_notifier;
+#endif
 };
 
 DECLARE_PER_CPU(struct irq_pipeline_data, irq_pipeline);

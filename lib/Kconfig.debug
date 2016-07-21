@@ -809,6 +809,16 @@ config IRQ_PIPELINE_TORTURE_TEST
 	  built into the kernel.  Say M if you want these torture
 	  tests to build as a module.  Say N if you are unsure.
 
+config DEBUG_DOVETAIL
+	bool "Debug Dovetail interface"
+	depends on DOVETAIL
+	select DEBUG_IRQ_PIPELINE
+	---help---
+	  Turn on this option for enabling debug checks related to
+	  running a dual kernel configuration, aka dovetailing. This
+	  option implicitly enables the interrupt pipeline debugging
+	  features.
+
 menu "Debug Lockups and Hangs"
 
 config LOCKUP_DETECTOR
