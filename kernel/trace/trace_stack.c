@@ -93,8 +93,9 @@ check_stack(unsigned long ip, unsigned long *stack)
 	if (!object_is_on_stack(stack))
 		return;
 
-	/* Can't do this from NMI context (can cause deadlocks) */
-	if (in_nmi())
+	/* Can't do this from NMI or head stage contexts (can cause
+	   deadlocks) */
+	if (in_nmi() || !on_root_stage())
 		return;
 
 	local_irq_save(flags);
