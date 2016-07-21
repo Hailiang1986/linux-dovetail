@@ -1016,6 +1016,7 @@ static int exec_mmap(struct mm_struct *mm)
 {
 	struct task_struct *tsk;
 	struct mm_struct *old_mm, *active_mm;
+	unsigned long flags;
 	int ret;
 
 	/* Notify parent that we're no longer interested in the old VM */
@@ -1048,6 +1049,7 @@ static int exec_mmap(struct mm_struct *mm)
 
 	local_irq_disable();
 	active_mm = tsk->active_mm;
+	protect_inband_mm(flags);
 	tsk->active_mm = mm;
 	tsk->mm = mm;
 	/*
@@ -1056,10 +1058,17 @@ static int exec_mmap(struct mm_struct *mm)
 	 * lazy tlb mm refcounting when these are updated by context
 	 * switches. Not all architectures can handle irqs off over
 	 * activate_mm yet.
+	 *
+	 * irq_pipeline: activate_mm() allowing irqs off context is a
+	 * requirement. e.g. TLB shootdown must not involve IPIs. We
+	 * make sure protect_inband_mm() is in effect while switching
+	 * in and activating the new mm by forcing
+	 * CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM on.
 	 */
 	if (!IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
 		local_irq_enable();
 	activate_mm(active_mm, mm);
+	unprotect_inband_mm(flags);
 	if (IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
 		local_irq_enable();
 	tsk->mm->vmacache_seqnum = 0;
