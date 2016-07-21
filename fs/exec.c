@@ -67,6 +67,7 @@
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
+#include <asm/dovetail.h>
 
 #include <trace/events/task.h>
 #include "internal.h"
@@ -1076,6 +1077,7 @@ static int exec_mmap(struct mm_struct *mm)
 	struct task_struct *tsk;
 	struct mm_struct *old_mm, *active_mm;
 	int ret;
+	unsigned long flags;
 
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
@@ -1107,8 +1109,10 @@ static int exec_mmap(struct mm_struct *mm)
 	active_mm = tsk->active_mm;
 	membarrier_exec_mmap(mm);
 	tsk->mm = mm;
+	protect_inband_mm(flags);
 	tsk->active_mm = mm;
 	activate_mm(active_mm, mm);
+	unprotect_inband_mm(flags);
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
 	task_unlock(tsk);
@@ -1380,6 +1384,9 @@ int begin_new_exec(struct linux_binprm * bprm)
 	retval = unshare_sighand(me);
 	if (retval)
 		goto out_unlock;
+
+	/* Tell Dovetail about the ongoing exec(). */
+	arch_dovetail_exec_prepare();
 
 	set_fs(USER_DS);
 	me->flags &= ~(PF_RANDOMIZE | PF_FORKNOEXEC | PF_KTHREAD |

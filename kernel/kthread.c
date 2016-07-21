@@ -1235,18 +1235,21 @@ void kthread_use_mm(struct mm_struct *mm)
 {
 	struct mm_struct *active_mm;
 	struct task_struct *tsk = current;
+	unsigned long flags;
 
 	WARN_ON_ONCE(!(tsk->flags & PF_KTHREAD));
 	WARN_ON_ONCE(tsk->mm);
 
 	task_lock(tsk);
 	active_mm = tsk->active_mm;
+	protect_inband_mm(flags);
 	if (active_mm != mm) {
 		mmgrab(mm);
 		tsk->active_mm = mm;
 	}
 	tsk->mm = mm;
 	switch_mm(active_mm, mm, tsk);
+	unprotect_inband_mm(flags);
 	task_unlock(tsk);
 #ifdef finish_arch_post_lock_switch
 	finish_arch_post_lock_switch();

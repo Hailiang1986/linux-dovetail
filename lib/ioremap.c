@@ -239,6 +239,7 @@ int ioremap_page_range(unsigned long addr,
 			break;
 	} while (pgd++, phys_addr += (next - addr), addr = next, addr != end);
 
+	arch_advertise_page_mapping(start, end);
 	flush_cache_vmap(start, end);
 
 	if (mask & ARCH_PAGE_TABLE_SYNC_MASK)
