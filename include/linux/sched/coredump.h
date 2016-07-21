@@ -91,6 +91,7 @@ static inline int get_dumpable(struct mm_struct *mm)
 
 #define MMF_VM_MERGE_ANY	30
 #define MMF_VM_MERGE_ANY_MASK	(1 << MMF_VM_MERGE_ANY)
+#define MMF_DOVETAILED		31	/* mm belongs to a dovetailed process */
 
 #define MMF_INIT_MASK		(MMF_DUMPABLE_MASK | MMF_DUMP_FILTER_MASK |\
 				 MMF_DISABLE_THP_MASK | MMF_HAS_MDWE_MASK |\
