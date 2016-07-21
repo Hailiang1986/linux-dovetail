@@ -52,11 +52,6 @@ void dovetail_hypervisor_stall(void);
 static inline void dovetail_hypervisor_stall(void) { }
 #endif
 
-static inline void dovetail_leave_root(void)
-{
-	dovetail_hypervisor_stall();
-}
-
 static inline void dovetail_signal_task(struct task_struct *p)
 {
 	if (test_ti_local_flags(task_thread_info(p), _TLF_DOVETAIL))
@@ -128,6 +123,18 @@ static inline void dovetail_prepare_switch(struct task_struct *next)
 	hard_local_irq_disable();
 }
 
+static inline void dovetail_leave_head(void)
+{
+	clear_thread_local_flags(_TLF_HEAD);
+}
+
+static inline void dovetail_leave_root(void)
+{
+	dovetail_hypervisor_stall();
+}
+
+int dovetail_context_switch_tail(void);
+
 void dovetail_enable(int flags);
 
 void dovetail_disable(void);
@@ -136,7 +143,7 @@ void dovetail_complete_domain_migration(void);
 
 int dovetail_enter_head(void);
 
-void dovetail_leave_head(void);
+void dovetail_enter_root(void);
 
 void dovetail_root_sync(void);
 
@@ -204,6 +211,11 @@ static inline void dovetail_mm_cleanup(struct mm_struct *mm) { }
 static inline void dovetail_complete_domain_migration(void) { }
 
 static inline void dovetail_prepare_switch(struct task_struct *next) { }
+
+static inline int dovetail_context_switch_tail(void)
+{
+	return 0;
+}
 
 static inline void dovetail_clear_callouts(struct irq_stage_data *p) { }
 

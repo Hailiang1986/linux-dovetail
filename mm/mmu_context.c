@@ -23,15 +23,18 @@ void use_mm(struct mm_struct *mm)
 {
 	struct mm_struct *active_mm;
 	struct task_struct *tsk = current;
+	unsigned long flags;
 
 	task_lock(tsk);
 	active_mm = tsk->active_mm;
+ 	dovetail_switch_mm_enter(flags);
 	if (active_mm != mm) {
 		mmgrab(mm);
 		tsk->active_mm = mm;
 	}
 	tsk->mm = mm;
 	switch_mm(active_mm, mm, tsk);
+ 	dovetail_switch_mm_exit(flags);
 	task_unlock(tsk);
 #ifdef finish_arch_post_lock_switch
 	finish_arch_post_lock_switch();
