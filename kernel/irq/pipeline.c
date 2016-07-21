@@ -12,6 +12,7 @@
 #include <linux/irq_work.h>
 #include <linux/jhash.h>
 #include <linux/debug_locks.h>
+#include <linux/dovetail.h>
 #include <dovetail/irq.h>
 #include <trace/events/irq.h>
 #include "internals.h"
@@ -1231,6 +1232,15 @@ int handle_irq_pipelined(struct pt_regs *regs)
 	 * in the interrupt have run.
 	 */
 	synchronize_pipeline_on_irq();
+
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * Sending MAYDAY is in essence a rare case, so prefer test
+	 * then maybe clear over test_and_clear.
+	 */
+	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY))
+		dovetail_call_mayday(current_thread_info(), regs);
+#endif
 
 	return running_inband() && !irqs_disabled();
 }
