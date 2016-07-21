@@ -1408,6 +1408,7 @@ void kthread_use_mm(struct mm_struct *mm)
 {
 	struct mm_struct *active_mm;
 	struct task_struct *tsk = current;
+	unsigned long flags;
 
 	WARN_ON_ONCE(!(tsk->flags & PF_KTHREAD));
 	WARN_ON_ONCE(tsk->mm);
@@ -1416,6 +1417,7 @@ void kthread_use_mm(struct mm_struct *mm)
 	/* Hold off tlb flush IPIs while switching mm's */
 	local_irq_disable();
 	active_mm = tsk->active_mm;
+	protect_inband_mm(flags);
 	if (active_mm != mm) {
 		mmgrab(mm);
 		tsk->active_mm = mm;
@@ -1423,6 +1425,7 @@ void kthread_use_mm(struct mm_struct *mm)
 	tsk->mm = mm;
 	membarrier_update_current_mm(mm);
 	switch_mm_irqs_off(active_mm, mm, tsk);
+	unprotect_inband_mm(flags);
 	local_irq_enable();
 	task_unlock(tsk);
 #ifdef finish_arch_post_lock_switch
