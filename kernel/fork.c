@@ -49,6 +49,7 @@
 #include <linux/cpu.h>
 #include <linux/cgroup.h>
 #include <linux/security.h>
+#include <linux/dovetail.h>
 #include <linux/hugetlb.h>
 #include <linux/seccomp.h>
 #include <linux/swap.h>
@@ -904,6 +905,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #endif
 
 	setup_thread_stack(tsk, orig);
+	inband_task_init(tsk);
 	clear_user_return_notifier(tsk);
 	clear_tsk_need_resched(tsk);
 	set_task_stack_end_magic(tsk);
@@ -1076,6 +1078,7 @@ static inline void __mmput(struct mm_struct *mm)
 	exit_aio(mm);
 	ksm_exit(mm);
 	khugepaged_exit(mm); /* must run before exit_mmap */
+	inband_cleanup_notify(mm); /* ditto. */
 	exit_mmap(mm);
 	mm_put_huge_zero_page(mm);
 	set_mm_exe_file(mm, NULL);
