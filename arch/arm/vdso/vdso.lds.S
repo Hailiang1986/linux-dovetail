@@ -57,10 +57,13 @@ SECTIONS
 	.got		: { *(.got) }
 	.rel.plt	: { *(.rel.plt) }
 
+	. = ALIGN(PAGE_SIZE);
+
+	.bss		: { *(.bss .sbss .dynbss .dynsbss) } :bss
+
 	/DISCARD/	: {
 		*(.note.GNU-stack)
 		*(.data .data.* .gnu.linkonce.d.* .sdata*)
-		*(.bss .sbss .dynbss .dynsbss)
 	}
 }
 
@@ -74,6 +77,7 @@ PHDRS
 	dynamic		PT_DYNAMIC	FLAGS(4);		/* PF_R */
 	note		PT_NOTE		FLAGS(4);		/* PF_R */
 	eh_frame_hdr	PT_GNU_EH_FRAME;
+	bss		PT_LOAD		FLAGS(6);		/* PF_R|PF_W */
 }
 
 VERSION
