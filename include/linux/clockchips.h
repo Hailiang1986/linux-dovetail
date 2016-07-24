@@ -15,6 +15,7 @@
 # include <linux/cpumask.h>
 # include <linux/ktime.h>
 # include <linux/notifier.h>
+# include <linux/irq_pipeline.h>
 
 struct clock_event_device;
 struct module;
@@ -67,6 +68,16 @@ enum clock_event_state {
  */
 # define CLOCK_EVT_FEAT_HRTIMER		0x000080
 
+/*
+ * Clockevent device can work with pipelined timer events.
+ */
+# define CLOCK_EVT_FEAT_PIPELINE	0x000100
+
+/*
+ * Clockevent device can deliver high-precision events.
+ */
+# define CLOCK_EVT_FEAT_HPEV		0x000200
+
 /**
  * struct clock_event_device - clock event device descriptor
  * @event_handler:	Assigned by the framework to be called by the low
@@ -91,7 +102,7 @@ enum clock_event_state {
  * @max_delta_ticks:	maximum delta value in ticks stored for reconfiguration
  * @name:		ptr to clock event name
  * @rating:		variable to rate clock event devices
- * @irq:		IRQ number (only for non CPU local devices)
+ * @irq:		IRQ number (only for non CPU local devices, or pipelined timers)
  * @bound_on:		Bound on CPU
  * @cpumask:		cpumask to indicate for which CPUs this device works
  * @list:		list head for the management code
@@ -186,6 +197,8 @@ extern int clockevents_unbind_device(struct clock_event_device *ced, int cpu);
 extern void clockevents_config_and_register(struct clock_event_device *dev,
 					    u32 freq, unsigned long min_delta,
 					    unsigned long max_delta);
+extern void clockevents_switch_state(struct clock_event_device *dev,
+				     enum clock_event_state state);
 
 extern int clockevents_update_freq(struct clock_event_device *ce, u32 freq);
 
@@ -214,6 +227,36 @@ extern int tick_check_broadcast_expired(void);
 static inline int tick_check_broadcast_expired(void) { return 0; }
 static inline void tick_setup_hrtimer_broadcast(void) { }
 # endif
+
+#ifdef CONFIG_IRQ_PIPELINE
+static inline
+void clockevents_handle_event(struct clock_event_device *ced)
+{
+	/*
+	 * If called from the root stage, or for delivering a
+	 * high-precision timer event from the head stage, call the
+	 * event handler immediately.
+	 *
+	 * Otherwise, ced is still the regular tick device for the
+	 * current CPU which does not handle high-precision events, so
+	 * just relay the incoming tick to the root stage.  This
+	 * situation can happen when all CPUs receive the same
+	 * (pipelined) IRQ from a given clock event device, but only a
+	 * subset of the online CPUs is actually interested in
+	 * high-precision events from that device.
+	 */
+	if ((ced->features & CLOCK_EVT_FEAT_HPEV) || on_root_stage())
+		ced->event_handler(ced);
+	else
+		irq_stage_post_root(ced->irq);
+}
+#else
+static inline
+void clockevents_handle_event(struct clock_event_device *ced)
+{
+	ced->event_handler(ced);
+}
+#endif	/* !CONFIG_IRQ_PIPELINE */
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS: */
 
