@@ -9,6 +9,7 @@
 #include <linux/kdb.h>
 #include <linux/smp.h>
 #include <linux/cpumask.h>
+#include <linux/irq_pipeline.h>
 #include <linux/irq_work.h>
 #include <linux/printk.h>
 #include <linux/kprobes.h>
@@ -364,6 +365,8 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	if (unlikely(kdb_trap_printk && kdb_printf_cpu < 0))
 		return vkdb_printf(KDB_MSGSRC_PRINTK, fmt, args);
 #endif
+	if (inband_unsafe())
+		return vprintk_nmi(fmt, args);
 
 	/*
 	 * Use the main logbuf even in NMI. But avoid calling console
