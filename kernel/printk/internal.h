@@ -78,6 +78,25 @@ bool nbcon_alloc(struct console *con);
 void nbcon_init(struct console *con);
 void nbcon_free(struct console *con);
 
+#ifdef CONFIG_IRQ_PIPELINE
+
+extern bool irq_pipeline_active;
+
+static inline bool printk_stage_safe(void)
+{
+	return running_inband() &&
+		(!hard_irqs_disabled() || !irq_pipeline_active);
+}
+
+#else
+
+static inline bool printk_stage_safe(void)
+{
+	return true;
+}
+
+#endif	/* CONFIG_IRQ_PIPELINE */
+
 #else
 
 #define PRINTK_PREFIX_MAX	0
