@@ -22,7 +22,7 @@
 
 #include "internals.h"
 
-#ifdef CONFIG_HARDIRQS_SW_RESEND
+#if defined(CONFIG_HARDIRQS_SW_RESEND) && !defined(CONFIG_IRQ_PIPELINE)
 
 /* Bitmap to handle software resend of interrupts: */
 static DECLARE_BITMAP(irqs_resend, IRQ_BITMAP_BITS);
