@@ -170,5 +170,10 @@ extern int vfp_restore_user_hwstate(struct user_vfp __user *,
 #define _TIF_WORK_MASK		(_TIF_NEED_RESCHED | _TIF_SIGPENDING | \
 				 _TIF_NOTIFY_RESUME | _TIF_UPROBE)
 
+/*
+ * Local (synchronous) thread flags.
+ */
+#define _TLF_HEAD		0x0001
+
 #endif /* __KERNEL__ */
 #endif /* __ASM_ARM_THREAD_INFO_H */

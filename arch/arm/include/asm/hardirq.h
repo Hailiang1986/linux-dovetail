@@ -6,7 +6,11 @@
 #include <linux/threads.h>
 #include <asm/irq.h>
 
-#define NR_IPI	7
+#ifdef CONFIG_IRQ_PIPELINE
+#define NR_IPI	11
+#else
+#define NR_IPI	8
+#endif
 
 typedef struct {
 	unsigned int __softirq_pending;

@@ -110,6 +110,22 @@
 	.endm
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+	.macro  disable_irq_cond
+	disable_irq_notrace
+	.endm
+
+	.macro  enable_irq_cond
+	enable_irq_notrace
+	.endm
+#else
+	.macro  disable_irq_cond
+	.endm
+
+	.macro  enable_irq_cond
+	.endm
+#endif
+   
 	.macro asm_trace_hardirqs_off, save=1
 #if defined(CONFIG_TRACE_IRQFLAGS)
 	.if \save

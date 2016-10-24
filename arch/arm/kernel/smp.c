@@ -66,22 +66,6 @@ struct secondary_data secondary_data;
  */
 volatile int pen_release = -1;
 
-enum ipi_msg_type {
-	IPI_WAKEUP,
-	IPI_TIMER,
-	IPI_RESCHEDULE,
-	IPI_CALL_FUNC,
-	IPI_CPU_STOP,
-	IPI_IRQ_WORK,
-	IPI_COMPLETION,
-	IPI_CPU_BACKTRACE,
-	/*
-	 * SGI8-15 can be reserved by secure firmware, and thus may
-	 * not be usable by the kernel. Please keep the above limited
-	 * to at most 8 entries.
-	 */
-};
-
 static DECLARE_COMPLETION(cpu_running);
 
 static struct smp_operations smp_ops __ro_after_init;
@@ -369,6 +353,13 @@ asmlinkage void secondary_start_kernel(void)
 	local_flush_tlb_all();
 
 	/*
+	 * When pipelining IRQs, debug_smp_processor_id() accesses
+	 * percpu data.
+	 */
+	if (irqs_pipelined())
+		set_my_cpu_offset(per_cpu_offset(raw_smp_processor_id()));
+
+	/*
 	 * All kernel threads share the same mm context; grab a
 	 * reference and switch to it.
 	 */
@@ -407,7 +398,7 @@ asmlinkage void secondary_start_kernel(void)
 	set_cpu_online(cpu, true);
 	complete(&cpu_running);
 
-	local_irq_enable();
+	local_irq_enable_full();
 	local_fiq_enable();
 	local_abt_enable();
 
@@ -488,9 +479,14 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	S(IPI_IRQ_WORK, "IRQ work interrupts"),
 	S(IPI_COMPLETION, "completion interrupts"),
 	S(IPI_CPU_BACKTRACE, "CPU backtrace interrupts"),
+#ifdef CONFIG_IRQ_PIPELINE
+	S(IPI_PIPELINE_STOP, "Pipeline stop interrupts"),
+	S(IPI_PIPELINE_TIMER, "OOB timer interrupts"),
+	S(IPI_PIPELINE_RESCHEDULE, "OOB rescheduling interrupts"),
+#endif
 };
 
-static void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
 {
 	trace_ipi_raise_rcuidle(target, ipi_types[ipinr]);
 	__smp_cross_call(target, ipinr);
@@ -552,6 +548,20 @@ void tick_broadcast(const struct cpumask *mask)
 }
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+
+static inline
+void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
+{
+	__irq_pipeline_enter(ipinr + OOB_IPI_BASE, regs);
+}
+
+#else
+
+static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs) { }
+
+#endif /* CONFIG_IRQ_PIPELINE */
+
 static DEFINE_RAW_SPINLOCK(stop_lock);
 
 /*
@@ -596,7 +606,7 @@ asmlinkage void __exception_irq_entry do_IPI(int ipinr, struct pt_regs *regs)
 	handle_IPI(ipinr, regs);
 }
 
-void handle_IPI(int ipinr, struct pt_regs *regs)
+void __handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
@@ -656,6 +666,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		printk_nmi_exit();
 		break;
 
+#ifdef CONFIG_IRQ_PIPELINE
+	case IPI_PIPELINE_STOP ... IPI_PIPELINE_RESCHEDULE:
+		irq_enter();
+		generic_handle_irq(OOB_IPI_BASE + ipinr);
+		irq_exit();
+		break;
+#endif
+
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n",
 		        cpu, ipinr);
@@ -665,6 +683,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
 	set_irq_regs(old_regs);
+}
+
+void handle_IPI(int ipinr, struct pt_regs *regs)
+{
+	if (irqs_pipelined())
+		handle_IPI_pipelined(ipinr, regs);
+	else
+		__handle_IPI(ipinr, regs);
 }
 
 void smp_send_reschedule(int cpu)

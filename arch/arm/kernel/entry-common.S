@@ -123,12 +123,9 @@ ENTRY(ret_to_user_from_irq)
 	bne	slow_work_pending
 no_work_pending:
 	asm_trace_hardirqs_on save = 0
-
-	/* perform architecture specific actions before user return */
-	arch_ret_to_user r1, lr
-	ct_user_enter save = 0
-
-	restore_user_regs fast = 0, offset = 0
+ENTRY(ret_to_user_from_irq_nocheck)
+	slow_restore_user_regs
+ENDPROC(ret_to_user_from_irq_nocheck)
 ENDPROC(ret_to_user_from_irq)
 ENDPROC(ret_to_user)
 
@@ -136,6 +133,7 @@ ENDPROC(ret_to_user)
  * This is how we return from a fork.
  */
 ENTRY(ret_from_fork)
+	enable_irq_cond
 	bl	schedule_tail
 	cmp	r5, #0
 	movne	r0, r4

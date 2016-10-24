@@ -204,14 +204,14 @@
 #ifdef CONFIG_TRACE_IRQFLAGS
 	@ The parent context IRQs must have been enabled to get here in
 	@ the first place, so there's no point checking the PSR I bit.
-	bl	trace_hardirqs_on
+	bl	trace_hardirqs_exit
 #endif
 	.else
 	@ IRQs off again before pulling preserved data off the stack
 	disable_irq_notrace
 #ifdef CONFIG_TRACE_IRQFLAGS
 	tst	\rpsr, #PSR_I_BIT
-	bleq	trace_hardirqs_on
+	bleq	trace_hardirqs_exit
 	tst	\rpsr, #PSR_I_BIT
 	blne	trace_hardirqs_off
 #endif
@@ -376,6 +376,27 @@
 	bl	context_tracking_user_enter
 	.endif
 #endif
+	.endm
+
+	.macro slow_restore_user_regs
+	/* perform architecture specific actions before user return */
+	arch_ret_to_user r1, lr
+	ct_user_enter save = 0
+	restore_user_regs fast = 0, offset = 0
+	.endm
+
+/*
+ * Branch to the exception epilogue, skipping the in-band work
+ * if running over the head interrupt stage.
+ */
+	.macro ret_to_user_pipelined, tmp
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	\tmp, [tsk, #TI_LOCAL_FLAGS]
+	tst	\tmp, #_TLF_HEAD
+ THUMB(	it ne)
+	bne	ret_to_user_from_irq_nocheck
+#endif
+	b	ret_to_user
 	.endm
 
 /*

@@ -18,6 +18,28 @@
 # error "<asm/smp.h> included in non-SMP build"
 #endif
 
+enum ipi_msg_type {
+	IPI_WAKEUP,
+	IPI_TIMER,
+	IPI_RESCHEDULE,
+	IPI_CALL_FUNC,
+	IPI_CPU_STOP,
+	IPI_IRQ_WORK,
+	IPI_COMPLETION,
+	IPI_CPU_BACKTRACE,
+	/*
+	 * SGI8-15 can be reserved by secure firmware, and thus may
+	 * not be usable by the kernel. Please keep the above limited
+	 * to at most 8 entries.
+	 */
+#ifdef CONFIG_IRQ_PIPELINE
+	/* Well, we currently need those entries for the pipeline. */
+	IPI_PIPELINE_STOP,
+	IPI_PIPELINE_TIMER,
+	IPI_PIPELINE_RESCHEDULE,
+#endif
+};
+
 #define raw_smp_processor_id() (current_thread_info()->cpu)
 
 struct seq_file;
@@ -33,9 +55,14 @@ extern void show_ipi_list(struct seq_file *, int);
 asmlinkage void do_IPI(int ipinr, struct pt_regs *regs);
 
 /*
- * Called from C code, this handles an IPI.
+ * Called from C code, this handles an IPI (including pipelined ones).
  */
 void handle_IPI(int ipinr, struct pt_regs *regs);
+
+/*
+ * Handles IPIs for the root stage exclusively.
+ */
+void __handle_IPI(int ipinr, struct pt_regs *regs);
 
 /*
  * Setup the set of possible CPUs (via set_cpu_possible)
@@ -47,6 +74,11 @@ extern void smp_init_cpus(void);
  * Provide a function to raise an IPI cross call on CPUs in callmap.
  */
 extern void set_smp_cross_call(void (*)(const struct cpumask *, unsigned int));
+
+/*
+ * Raise an IPI.
+ */
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr);
 
 /*
  * Called from platform specific assembly code, this is the
