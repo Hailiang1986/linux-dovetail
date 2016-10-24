@@ -396,6 +396,13 @@ asmlinkage void secondary_start_kernel(void)
 	local_flush_tlb_all();
 
 	/*
+	 * When pipelining IRQs, debug_smp_processor_id() accesses
+	 * percpu data.
+	 */
+	if (irqs_pipelined())
+		set_my_cpu_offset(per_cpu_offset(raw_smp_processor_id()));
+
+	/*
 	 * All kernel threads share the same mm context; grab a
 	 * reference and switch to it.
 	 */
@@ -437,7 +444,7 @@ asmlinkage void secondary_start_kernel(void)
 
 	complete(&cpu_running);
 
-	local_irq_enable();
+	local_irq_enable_full();
 	local_fiq_enable();
 	local_abt_enable();
 
@@ -500,12 +507,12 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	}
 }
 
-static void (*__smp_cross_call)(const struct cpumask *, unsigned int);
+static void (*___smp_cross_call)(const struct cpumask *, unsigned int);
 
 void __init set_smp_cross_call(void (*fn)(const struct cpumask *, unsigned int))
 {
-	if (!__smp_cross_call)
-		__smp_cross_call = fn;
+	if (!___smp_cross_call)
+		___smp_cross_call = fn;
 }
 
 static const char *ipi_types[NR_IPI] __tracepoint_string = {
@@ -519,10 +526,66 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	S(IPI_COMPLETION, "completion interrupts"),
 };
 
-static void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+#ifdef CONFIG_IRQ_PIPELINE
+
+static DEFINE_PER_CPU(unsigned long, ipi_messages);
+
+static inline
+void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 {
-	trace_ipi_raise_rcuidle(target, ipi_types[ipinr]);
-	__smp_cross_call(target, ipinr);
+	unsigned int cpu, sgi;
+
+	if (ipinr < INBAND_NR_IPI) {
+		/* regular in-band IPI (multiplexed over SGI0). */
+		trace_ipi_raise_rcuidle(target, ipi_types[ipinr]);
+		for_each_cpu(cpu, target)
+			set_bit(ipinr, &per_cpu(ipi_messages, cpu));
+		smp_mb();
+		sgi = 0;
+	} else	/* out-of-band IPI (SGI1-2). */
+		sgi = ipinr - INBAND_NR_IPI + 1;
+
+	___smp_cross_call(target, sgi);
+}
+
+static inline
+void handle_IPI_pipelined(int sgi, struct pt_regs *regs)
+{
+	unsigned int ipinr, irq;
+	unsigned long *pmsg;
+
+	if (sgi) {		/* SGI1-2 */
+		irq = sgi + INBAND_NR_IPI - 1 + OOB_IPI_BASE;
+		generic_pipeline_irq(irq, regs);
+		return;
+	}
+
+	/* In-band IPI (0..INBAND_NR_IPI - 1) multiplexed over SGI0. */
+	pmsg = raw_cpu_ptr(&ipi_messages);
+	while (*pmsg) {
+		ipinr = ffs(*pmsg) - 1;
+		clear_bit(ipinr, pmsg);
+		irq = OOB_IPI_BASE + ipinr;
+		generic_pipeline_irq(irq, regs);
+	}
+}
+
+#else
+
+static inline
+void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
+{
+	___smp_cross_call(target, ipinr);
+}
+
+static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
+{ }
+
+#endif /* CONFIG_IRQ_PIPELINE */
+
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+{
+	send_IPI_message(target, ipinr);
 }
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -598,7 +661,7 @@ static void ipi_cpu_stop(unsigned int cpu)
 	set_cpu_online(cpu, false);
 
 	local_fiq_disable();
-	local_irq_disable();
+	hard_local_irq_disable();
 
 	while (1) {
 		cpu_relax();
@@ -627,7 +690,7 @@ asmlinkage void __exception_irq_entry do_IPI(int ipinr, struct pt_regs *regs)
 	handle_IPI(ipinr, regs);
 }
 
-void handle_IPI(int ipinr, struct pt_regs *regs)
+void __handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
@@ -687,6 +750,18 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		printk_nmi_exit();
 		break;
 
+#ifdef CONFIG_IRQ_PIPELINE
+	/*
+	 * In the unlikely event out-of-band IPIs have a in-band stage
+	 * handler.
+	 */
+	case INBAND_NR_IPI ... INBAND_NR_IPI + OOB_NR_IPI - 1:
+		irq_enter();
+		generic_handle_irq(OOB_IPI_BASE + ipinr);
+		irq_exit();
+		break;
+#endif
+
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n",
 		        cpu, ipinr);
@@ -696,6 +771,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
 	set_irq_regs(old_regs);
+}
+
+void handle_IPI(int ipinr, struct pt_regs *regs)
+{
+	if (irqs_pipelined())
+		handle_IPI_pipelined(ipinr, regs);
+	else
+		__handle_IPI(ipinr, regs);
 }
 
 void smp_send_reschedule(int cpu)
@@ -805,7 +888,7 @@ core_initcall(register_cpufreq_notifier);
 
 static void raise_nmi(cpumask_t *mask)
 {
-	__smp_cross_call(mask, IPI_CPU_BACKTRACE);
+	send_IPI_message(mask, IPI_CPU_BACKTRACE);
 }
 
 void arch_trigger_cpumask_backtrace(const cpumask_t *mask, bool exclude_self)
