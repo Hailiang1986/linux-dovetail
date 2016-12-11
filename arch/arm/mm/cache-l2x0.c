@@ -48,9 +48,15 @@ struct l2c_init_data {
 
 #define CACHE_LINE_SIZE		32
 
+#ifdef CONFIG_IRQ_PIPELINE
+#define CACHE_RANGE_ATOMIC_MAX	512UL
+#else
+#define CACHE_RANGE_ATOMIC_MAX	4096UL
+#endif
+
 static void __iomem *l2x0_base;
 static const struct l2c_init_data *l2x0_data;
-static DEFINE_RAW_SPINLOCK(l2x0_lock);
+static DEFINE_HARD_SPINLOCK(l2x0_lock);
 static u32 l2x0_way_mask;	/* Bitmask of active ways */
 static u32 l2x0_size;
 static unsigned long sync_reg_offset = L2X0_CACHE_SYNC;
@@ -296,10 +302,10 @@ static void l2c220_op_way(void __iomem *base, unsigned reg)
 static unsigned long l2c220_op_pa_range(void __iomem *reg, unsigned long start,
 	unsigned long end, unsigned long flags)
 {
-	raw_spinlock_t *lock = &l2x0_lock;
+	hard_spinlock_t *lock = &l2x0_lock;
 
 	while (start < end) {
-		unsigned long blk_end = start + min(end - start, 4096UL);
+		unsigned long blk_end = start + min(end - start, CACHE_RANGE_ATOMIC_MAX);
 
 		while (start < blk_end) {
 			l2c_wait_mask(reg, 1);
@@ -510,13 +516,13 @@ static void l2c310_inv_range_erratum(unsigned long start, unsigned long end)
 
 static void l2c310_flush_range_erratum(unsigned long start, unsigned long end)
 {
-	raw_spinlock_t *lock = &l2x0_lock;
+	hard_spinlock_t *lock = &l2x0_lock;
 	unsigned long flags;
 	void __iomem *base = l2x0_base;
 
 	raw_spin_lock_irqsave(lock, flags);
 	while (start < end) {
-		unsigned long blk_end = start + min(end - start, 4096UL);
+		unsigned long blk_end = start + min(end - start, CACHE_RANGE_ATOMIC_MAX);
 
 		l2c_set_debug(base, 0x03);
 		while (start < blk_end) {
