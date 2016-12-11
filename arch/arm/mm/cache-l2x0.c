@@ -50,8 +50,16 @@ struct l2c_init_data {
 
 #ifdef CONFIG_IRQ_PIPELINE
 #define CACHE_RANGE_ATOMIC_MAX	512UL
+static int l2x0_wa = -1;
+static int __init l2x0_setup_wa(char *str)
+{
+	l2x0_wa = !!simple_strtol(str, NULL, 0);
+	return 0;
+}
+early_param("l2x0_write_allocate", l2x0_setup_wa);
 #else
 #define CACHE_RANGE_ATOMIC_MAX	4096UL
+static int l2x0_wa = 1;
 #endif
 
 static void __iomem *l2x0_base;
@@ -817,6 +825,28 @@ static int __init __l2c_init(const struct l2c_init_data *data,
 	 */
 	if (aux_val & aux_mask)
 		pr_alert("L2C: platform provided aux values permit register corruption.\n");
+
+	if (irqs_pipelined()) {
+		switch (cache_id & L2X0_CACHE_ID_PART_MASK) {
+		case L2X0_CACHE_ID_PART_L310:
+			if ((cache_id & L2X0_CACHE_ID_RTL_MASK)
+			    >= L310_CACHE_ID_RTL_R3P2) {
+				l2x0_wa = 1;
+				pr_alert("L2C: irq_pipeline: revision >= L310-r3p2 detected, forcing WA.\n");
+			}
+		case L2X0_CACHE_ID_PART_L220:
+			if (l2x0_wa < 0) {
+				l2x0_wa = 0;
+				pr_alert("L2C: irq_pipeline: l2x0_write_allocate= not specified [=0 (disabled)].\n");
+			}
+			if (!l2x0_wa) {
+				aux_mask &= ~L220_AUX_CTRL_FWA_MASK;
+				aux_val &= ~L220_AUX_CTRL_FWA_MASK;
+				aux_val |= 1 << L220_AUX_CTRL_FWA_SHIFT;
+			} else
+				pr_alert("L2C: irq_pipeline: write-allocate enabled, induces high latencies.\n");
+		}
+	}
 
 	old_aux = aux = readl_relaxed(l2x0_base + L2X0_AUX_CTRL);
 	aux &= aux_mask;
