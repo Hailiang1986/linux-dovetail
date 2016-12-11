@@ -2,6 +2,7 @@
  *  linux/arch/arm/kernel/entry-common.S
  *
  *  Copyright (C) 2000 Russell King
+ *  Copyright (C) 2005 Stelian Pop.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -25,6 +26,35 @@
 	.macro  arch_ret_to_user, tmp1, tmp2
 	.endm
 #endif
+
+#ifdef CONFIG_DOVETAIL
+
+.macro  oabi_save_sysnr, tmp
+#ifdef CONFIG_OABI_COMPAT
+	ldr	\tmp, [sp, #S_R7 + S_OFF]
+	stmdb	sp!, {\tmp}
+	ldr	\tmp, =sys_oabi_call_table
+	cmp	\tmp, tbl
+	moveq	\tmp, scno
+	addeq	\tmp, #__NR_SYSCALL_BASE
+	streq	\tmp, [sp, #S_R7 + S_OFF + 4]	@ head domain expects syscall number in r7
+#elif !defined(CONFIG_AEABI)
+	ldr	\tmp, [sp, #S_R7 + S_OFF]
+	stmdb	sp!, {\tmp}
+	mov	\tmp, scno
+	add	\tmp, #__NR_SYSCALL_BASE
+	str	\tmp, [sp, #S_R7 + S_OFF + 4]
+#endif	
+.endm
+
+.macro  oabi_restore_sysnr, tmp
+#if defined(CONFIG_OABI_COMPAT) || !defined(CONFIG_AEABI)
+	ldmia	sp!, {\tmp}
+	str	\tmp, [sp, #S_R7 + S_OFF]
+#endif
+.endm
+	
+#endif /* CONFIG_DOVETAIL */
 
 #include "entry-header.S"
 
@@ -234,6 +264,51 @@ ENTRY(vector_swi)
  TRACE(	ldmia	sp, {r0 - r3}		)
 
 local_restart:
+#ifdef CONFIG_DOVETAIL
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]	@ tsk(r9) is callee-saved
+ 	ldr	r0, =(__ARM_NR_dovetail - __NR_SYSCALL_BASE)
+	cmp	scno, r0
+	bne	slow_path
+	tst	r10, #_TLF_HEAD
+	beq	slow_path
+	mov	r0, sp				@ regs
+	oabi_save_sysnr r10			@ caution: may affect sp
+	bl	dovetail_fastcall_hook		@ _DOVETAIL_SYSCALL_E is assumed
+	oabi_restore_sysnr r10
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]
+	tst	r10, #_TLF_HEAD
+	bne	fastcall_exit_check		@ check for MAYDAY
+	bl	dovetail_root_sync
+	b	ret_slow_syscall
+fastcall_exit_check:
+	ldr	r10, [tsk, #TI_FLAGS]
+	tst	r10, #_TIF_MAYDAY
+	beq	fast_ret_to_user_from_syscall
+	mov	r0, sp
+	bl	dovetail_call_mayday
+fast_ret_to_user_from_syscall:
+	disable_irq_notrace			@ disable interrupts
+	b	ret_to_user_from_irq_nocheck
+slow_path:
+	tst	r10, #_TLF_DOVETAIL
+	bne	pipeline_syscall
+	cmp	scno, r0
+	bne	root_syscall
+pipeline_syscall:
+	mov	r1, sp				@ regs
+	mov	r0, tsk
+	oabi_save_sysnr r10			@ caution: affects sp
+	bl	dovetail_pipeline_syscall
+	oabi_restore_sysnr r10
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]
+	tst	r10, #_TLF_HEAD
+	bne	fast_ret_to_user_from_syscall
+	cmp	r0, #0
+	bgt	ret_slow_syscall
+root_syscall:
+	ldmia	sp, { r0 - r3 }
+#endif /* CONFIG_DOVETAIL */
+
 	ldr	r10, [tsk, #TI_FLAGS]		@ check for syscall tracing
 	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
 

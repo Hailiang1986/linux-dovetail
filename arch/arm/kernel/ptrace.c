@@ -215,6 +215,7 @@ void ptrace_break(struct task_struct *tsk, struct pt_regs *regs)
 
 static int break_trap(struct pt_regs *regs, unsigned int instr)
 {
+	dovetail_handle_trap(ARM_TRAP_BREAK, regs);
 	ptrace_break(current, regs);
 	return 0;
 }

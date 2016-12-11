@@ -474,6 +474,8 @@ asmlinkage void do_undefinstr(struct pt_regs *regs)
 		return;
 
 die_sig:
+	dovetail_handle_trap(ARM_TRAP_UNDEFINSTR, regs);
+
 #ifdef CONFIG_DEBUG_USER
 	if (user_debug & UDBG_UNDEFINED) {
 		pr_info("%s (%d): undefined instruction: pc=%p\n",
@@ -524,6 +526,8 @@ asmlinkage void __exception_irq_entry handle_fiq_as_nmi(struct pt_regs *regs)
  */
 asmlinkage void bad_mode(struct pt_regs *regs, int reason)
 {
+	dovetail_handle_trap(ARM_TRAP_UNKNOWN, regs);
+
 	console_verbose();
 
 	pr_crit("Bad mode in %s handler detected\n", handler[reason]);
