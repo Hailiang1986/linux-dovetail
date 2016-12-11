@@ -206,6 +206,7 @@ void ptrace_break(struct pt_regs *regs)
 
 static int break_trap(struct pt_regs *regs, unsigned int instr)
 {
+	oob_trap_notify(ARM_TRAP_BREAK, regs);
 	ptrace_break(regs);
 	return 0;
 }
