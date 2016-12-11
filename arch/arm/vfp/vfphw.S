@@ -181,6 +181,15 @@ vfp_hw_state_valid:
 					@ instruction address.
 
 local_bh_enable_and_ret:
+	enable_irq_if_pipelined
+#ifdef CONFIG_DOVETAIL
+	get_thread_info r0
+	ldr	r0, [r0, #TI_LOCAL_FLAGS]
+	tst	r0, #_TLF_OOB
+	beq	1f
+	bx	lr
+1:
+#endif	
 	adr	r0, .
 	mov	r1, #SOFTIRQ_DISABLE_OFFSET
 	b	__local_bh_enable_ip	@ tail call
