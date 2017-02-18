@@ -38,4 +38,9 @@
 #define __ARM_NR_set_tls		(__ARM_NR_BASE+5)
 #define __ARM_NR_get_tls		(__ARM_NR_BASE+6)
 
+/*
+ * Private SWI for dispatching dovetailed syscalls to the head domain.
+ */
+#define __ARM_NR_dovetail		(__ARM_NR_BASE+66)
+
 #endif /* _UAPI__ASM_ARM_UNISTD_H */

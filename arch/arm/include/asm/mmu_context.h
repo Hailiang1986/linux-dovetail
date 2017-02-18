@@ -75,6 +75,7 @@ static inline void check_and_switch_context(struct mm_struct *mm,
 static inline void finish_arch_post_lock_switch(void)
 {
 	struct mm_struct *mm = current->mm;
+	unsigned long flags;
 
 	if (mm && mm->context.switch_pending) {
 		/*
@@ -86,7 +87,9 @@ static inline void finish_arch_post_lock_switch(void)
 		preempt_disable();
 		if (mm->context.switch_pending) {
 			mm->context.switch_pending = 0;
+			dovetail_switch_mm_enter(flags);
 			cpu_switch_mm(mm->pgd, mm);
+			dovetail_switch_mm_exit(flags);
 		}
 		preempt_enable_no_resched();
 	}
@@ -105,7 +108,7 @@ init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 #endif	/* CONFIG_CPU_HAS_ASID */
 
 #define destroy_context(mm)		do { } while(0)
-#define activate_mm(prev,next)		switch_mm(prev, next, NULL)
+#define activate_mm(prev,next)		__switch_mm(prev, next, NULL)
 
 /*
  * This is called when "tsk" is about to enter lazy TLB mode.
@@ -121,15 +124,9 @@ enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 }
 
-/*
- * This is the actual mm switch as far as the scheduler
- * is concerned.  No registers are touched.  We avoid
- * calling the CPU specific function when the mm hasn't
- * actually changed.
- */
 static inline void
-switch_mm(struct mm_struct *prev, struct mm_struct *next,
-	  struct task_struct *tsk)
+__switch_mm(struct mm_struct *prev, struct mm_struct *next,
+	    struct task_struct *tsk)
 {
 #ifdef CONFIG_MMU
 	unsigned int cpu = smp_processor_id();
@@ -152,6 +149,37 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 #endif
 }
 
+/*
+ * This is the actual mm switch as far as the scheduler
+ * is concerned.  No registers are touched.  We avoid
+ * calling the CPU specific function when the mm hasn't
+ * actually changed.
+ */
+static inline void
+switch_mm(struct mm_struct *prev, struct mm_struct *next,
+	  struct task_struct *tsk)
+{
+	unsigned long flags;
+
+	dovetail_switch_mm_enter(flags);
+	__switch_mm(prev, next, tsk);
+	dovetail_switch_mm_exit(flags);
+}
+	  
 #define deactivate_mm(tsk,mm)	do { } while (0)
 
+#ifdef CONFIG_DOVETAIL
+/*
+ * The mm switching service a co-kernel may invoke from the head stage
+ * exclusively, as part of its private context switch procedure
+ * (hard_irqs_disabled).
+ */
+static inline void
+dovetail_switch_mm(struct mm_struct *prev, struct mm_struct *next,
+		   struct task_struct *tsk)
+{
+	__switch_mm(prev, next, tsk);
+}
+#endif
+	  
 #endif
