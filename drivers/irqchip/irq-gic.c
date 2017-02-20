@@ -93,7 +93,7 @@ struct gic_chip_data {
 
 #ifdef CONFIG_BL_SWITCHER
 
-static DEFINE_RAW_SPINLOCK(cpu_map_lock);
+static DEFINE_HARD_SPINLOCK(cpu_map_lock);
 
 #define gic_lock_irqsave(f)		\
 	raw_spin_lock_irqsave(&cpu_map_lock, (f))
@@ -239,6 +239,19 @@ static void gic_eoimode1_eoi_irq(struct irq_data *d)
 		return;
 
 	writel_relaxed(gic_irq(d), gic_cpu_base(d) + GIC_CPU_DEACTIVATE);
+}
+
+static void gic_hold_irq(struct irq_data *d)
+{
+	struct irq_chip *chip = irq_data_get_irq_chip(d);
+	
+	/*
+	 * Same handling for both fasteoi and percpu_devid IRQs:
+	 * mask+eoi. Call indirectly via the handlers to account for
+	 * eoimode1.
+	 */
+	chip->irq_mask(d);
+	chip->irq_eoi(d);
 }
 
 static int gic_irq_set_irqchip_state(struct irq_data *d,
@@ -422,9 +435,11 @@ static const struct irq_chip gic_chip = {
 	.irq_set_type		= gic_set_type,
 	.irq_get_irqchip_state	= gic_irq_get_irqchip_state,
 	.irq_set_irqchip_state	= gic_irq_set_irqchip_state,
+	.irq_hold		= gic_hold_irq,
 	.flags			= IRQCHIP_SET_TYPE_MASKED |
 				  IRQCHIP_SKIP_SET_WAKE |
-				  IRQCHIP_MASK_ON_SUSPEND,
+				  IRQCHIP_MASK_ON_SUSPEND |
+				  IRQCHIP_PIPELINE_SAFE,
 };
 
 void __init gic_cascade_irq(unsigned int gic_nr, unsigned int irq)
