@@ -43,7 +43,8 @@ static int start_irqsoff_tracer(struct trace_array *tr, int graph);
 static inline int
 preempt_trace(void)
 {
-	return ((trace_type & TRACER_PREEMPT_OFF) && preempt_count());
+	return ((trace_type & TRACER_PREEMPT_OFF) &&
+		on_root_stage() && preempt_count());
 }
 #else
 # define preempt_trace() (0)
@@ -54,7 +55,7 @@ static inline int
 irq_trace(void)
 {
 	return ((trace_type & TRACER_IRQS_OFF) &&
-		irqs_disabled());
+		on_root_stage() && irqs_disabled());
 }
 #else
 # define irq_trace() (0)
@@ -428,7 +429,7 @@ stop_critical_timing(unsigned long ip, unsigned long parent_ip)
 
 	atomic_inc(&data->disabled);
 
-	local_save_flags(flags);
+	irq_stage_save_flags(flags);
 	__trace_function(tr, ip, parent_ip, flags, preempt_count());
 	check_critical_timing(tr, data, parent_ip ? : ip, cpu);
 	data->critical_start = 0;
@@ -493,7 +494,24 @@ static inline void tracer_hardirqs_off_caller(unsigned long caller_addr)
 		start_critical_timing(CALLER_ADDR0, caller_addr);
 }
 
+void trace_hardirqs_exit(void)
+{
+	/*
+	 * If the IRQ was not delivered to the kernel, keep the
+	 * tracing logic unaware of the receipt, so that no false
+	 * positive is triggered in lockdep (e.g. IN-HARDIRQ-W ->
+	 * HARDIRQ-ON-W).
+	 */
+	if (irqs_pipelined() && (!__on_root_stage() || irqs_disabled())) {
+		WARN_ON(irq_pipeline_debug() && !hard_irqs_disabled());
+		return;
+	}
+
+	trace_hardirqs_on();
+}
+
 #endif /* CONFIG_PROVE_LOCKING */
+
 #endif /*  CONFIG_IRQSOFF_TRACER */
 
 #ifdef CONFIG_PREEMPT_TRACER
