@@ -3072,8 +3072,8 @@ rb_wakeups(struct trace_buffer *buffer, struct ring_buffer_per_cpu *cpu_buffer)
 static __always_inline int
 trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 {
-	unsigned int val = cpu_buffer->current_context;
-	unsigned long pc = preempt_count();
+	unsigned int val;
+	unsigned long pc = preempt_count(), flags;
 	int bit;
 
 	if (!(pc & (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
@@ -3081,6 +3081,10 @@ trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 	else
 		bit = pc & NMI_MASK ? RB_CTX_NMI :
 			pc & HARDIRQ_MASK ? RB_CTX_IRQ : RB_CTX_SOFTIRQ;
+
+	flags = hard_cond_local_irq_save();
+
+	val = cpu_buffer->current_context;
 
 	if (unlikely(val & (1 << (bit + cpu_buffer->nest)))) {
 		/*
@@ -3091,6 +3095,7 @@ trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 		bit = RB_CTX_TRANSITION;
 		if (val & (1 << (bit + cpu_buffer->nest))) {
 			do_ring_buffer_record_recursion();
+			hard_cond_local_irq_restore(flags);
 			return 1;
 		}
 	}
@@ -3098,14 +3103,20 @@ trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 	val |= (1 << (bit + cpu_buffer->nest));
 	cpu_buffer->current_context = val;
 
+	hard_cond_local_irq_restore(flags);
+
 	return 0;
 }
 
 static __always_inline void
 trace_recursive_unlock(struct ring_buffer_per_cpu *cpu_buffer)
 {
+	unsigned long flags;
+
+	flags = hard_cond_local_irq_save();
 	cpu_buffer->current_context &=
 		cpu_buffer->current_context - (1 << cpu_buffer->nest);
+	hard_cond_local_irq_restore(flags);
 }
 
 /* The recursive locking above uses 5 bits */
