@@ -175,7 +175,15 @@ static __always_inline int trace_test_and_set_recursion(unsigned long ip, unsign
  */
 static __always_inline void trace_clear_recursion(int bit)
 {
-	preempt_enable_notrace();
+	if (irqs_pipelined() && (hard_irqs_disabled() || !running_inband()))
+		/*
+		 * Nothing urgent to schedule here. At latest the
+		 * timer tick will pick up whatever the tracing
+		 * functions kicked off.
+		 */
+		__preempt_enable_no_resched_notrace();
+	else
+		preempt_enable_notrace();
 	barrier();
 	trace_recursion_clear(bit);
 }
