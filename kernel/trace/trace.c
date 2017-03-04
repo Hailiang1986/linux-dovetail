@@ -1129,9 +1129,9 @@ static void tracing_snapshot_instance_cond(struct trace_array *tr,
 		return;
 	}
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	update_max_tr(tr, current, smp_processor_id(), cond_data);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 void tracing_snapshot_instance(struct trace_array *tr)
@@ -1822,7 +1822,7 @@ update_max_tr(struct trace_array *tr, struct task_struct *tsk, int cpu,
 	if (tr->stop_count)
 		return;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	WARN_ON_ONCE(!hard_irqs_disabled());
 
 	if (!tr->allocated_snapshot) {
 		/* Only the nop tracer should hit this when disabling */
@@ -1866,7 +1866,7 @@ update_max_tr_single(struct trace_array *tr, struct task_struct *tsk, int cpu)
 	if (tr->stop_count)
 		return;
 
-	WARN_ON_ONCE(!irqs_disabled());
+	WARN_ON_ONCE(!hard_irqs_disabled());
 	if (!tr->allocated_snapshot) {
 		/* Only the nop tracer should hit this when disabling */
 		WARN_ON_ONCE(tr->current_trace != &nop_trace);
@@ -2621,12 +2621,14 @@ tracing_generic_entry_update(struct trace_entry *entry, unsigned short type,
 	entry->flags =
 #ifdef CONFIG_TRACE_IRQFLAGS_SUPPORT
 		(irqs_disabled_flags(flags) ? TRACE_FLAG_IRQS_OFF : 0) |
-#else
+		(hard_irqs_disabled() ? TRACE_FLAG_IRQS_HARDOFF : 0) |
+#elif !defined(CONFIG_IRQ_PIPELINE)
 		TRACE_FLAG_IRQS_NOSUPPORT |
 #endif
 		((pc & NMI_MASK    ) ? TRACE_FLAG_NMI     : 0) |
 		((pc & HARDIRQ_MASK) ? TRACE_FLAG_HARDIRQ : 0) |
 		((pc & SOFTIRQ_OFFSET) ? TRACE_FLAG_SOFTIRQ : 0) |
+		(running_oob() ? TRACE_FLAG_OOB_STAGE : 0) |
 		(tif_need_resched() ? TRACE_FLAG_NEED_RESCHED : 0) |
 		(test_preempt_need_resched() ? TRACE_FLAG_PREEMPT_RESCHED : 0);
 }
@@ -7254,10 +7256,10 @@ tracing_snapshot_write(struct file *filp, const char __user *ubuf, size_t cnt,
 			break;
 		/* Now, we're going to swap */
 		if (iter->cpu_file == RING_BUFFER_ALL_CPUS) {
-			local_irq_disable();
+			hard_local_irq_disable();
 			update_max_tr(tr, current, smp_processor_id(), NULL);
-			local_irq_enable();
-		} else {
+			hard_local_irq_enable();
+		} else {	/* FIXME: irq_pipeline */
 			smp_call_function_single(iter->cpu_file, tracing_swap_cpu_buffer,
 						 (void *)tr, 1);
 		}
