@@ -44,7 +44,7 @@ static int __ftrace_modify_code(void *data)
 
 void arch_ftrace_update_code(int command)
 {
-	stop_machine(__ftrace_modify_code, &command, NULL);
+	stop_machine_pipelined(__ftrace_modify_code, &command, NULL);
 }
 
 #ifdef CONFIG_OLD_MCOUNT

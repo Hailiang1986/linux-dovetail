@@ -21,6 +21,7 @@
 #include <linux/smpboot.h>
 #include <linux/atomic.h>
 #include <linux/nmi.h>
+#include <linux/irq_pipeline.h>
 
 /*
  * Structure to determine completion condition and record errors.  May
@@ -652,3 +653,52 @@ int stop_machine_from_inactive_cpu(cpu_stop_fn_t fn, void *data,
 	mutex_unlock(&stop_cpus_mutex);
 	return ret ?: done.ret;
 }
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+/**
+ * stop_machine_pipelined - stop_machine() including head IRQ stage
+ * activity.
+ *
+ * @fn: the function to run
+ * @data: the data ptr for the @fn()
+ * @cpus: the cpus to run the @fn() on (NULL = any online cpu)
+ *
+ * This is semantically identical to stop_machine() but also preempts
+ * any activity running on the head stage for all target CPUs until
+ * @fn has returned on all of them.
+ *
+ * Returns the execution status of @fn on the local CPU.
+ */
+int stop_machine_pipelined(cpu_stop_fn_t fn, void *data,
+			   const struct cpumask *cpus)
+{
+	unsigned long flags;
+	int ret;
+
+	check_root_stage();
+	
+	cpus_read_lock();
+
+	if (cpus == NULL)
+		cpus = cpu_online_mask;
+
+	/*
+	 * CAUTION: Some functions may check whether irqs are
+	 * (virtually) disabled to detect a call from stop_machine*()
+	 * (e.g. ftrace_modify_all_code()), so stall the root stage
+	 * accordingly.
+	 */
+	local_irq_disable();
+	flags = irq_pipeline_lock_many(cpus, fn, data);
+	ret = fn(data);
+	irq_pipeline_unlock(flags);
+	local_irq_enable();
+
+	cpus_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(stop_machine_pipelined);
+
+#endif

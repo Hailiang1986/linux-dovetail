@@ -162,4 +162,21 @@ static inline int stop_machine_from_inactive_cpu(cpu_stop_fn_t fn, void *data,
 }
 
 #endif	/* CONFIG_SMP || CONFIG_HOTPLUG_CPU */
+
+#if defined(CONFIG_IRQ_PIPELINE) && defined(CONFIG_SMP)
+int stop_machine_pipelined(cpu_stop_fn_t fn, void *data,
+			   const struct cpumask *cpus);
+#else
+static inline int stop_machine_pipelined(cpu_stop_fn_t fn, void *data,
+					 const struct cpumask *cpus)
+{
+	unsigned long flags;
+	int ret;
+	flags = hard_local_irq_save();
+	ret = fn(data);
+	hard_local_irq_restore(flags);
+	return ret;
+}
+#endif
+
 #endif	/* _LINUX_STOP_MACHINE */
