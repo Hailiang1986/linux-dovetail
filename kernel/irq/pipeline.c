@@ -23,6 +23,7 @@
 #include <linux/clockchips.h>
 #include <linux/uaccess.h>
 #include <linux/irqdomain.h>
+#include <linux/irq_work.h>
 #include "internals.h"
 
 struct irq_stage root_irq_stage = {
@@ -202,6 +203,21 @@ static int sirq_map(struct irq_domain *d, unsigned int irq,
 
 static struct irq_domain_ops sirq_domain_ops = {
 	.map	= sirq_map,
+};
+
+static unsigned int root_work_sirq;
+
+static irqreturn_t root_work_interrupt(int sirq, void *dev_id)
+{
+	irq_work_run();
+
+	return IRQ_HANDLED;
+}
+
+static struct irqaction root_work = {
+	.handler = root_work_interrupt,
+	.name = "Local work interrupts",
+	.flags = IRQF_NO_THREAD,
 };
 
 /**
@@ -1480,6 +1496,17 @@ void irq_cpuidle_exit(void)
 	local_irq_enable_full();
 }
 
+void irq_local_work_raise(void)
+{
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
+	irq_stage_post_root(root_work_sirq);
+	if (on_root_stage() && !hard_irqs_disabled_flags(flags))
+		irq_pipeline_sync(head_irq_stage);
+	hard_local_irq_restore(flags);
+}
+
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
 
 notrace void check_root_stage(void)
@@ -1589,6 +1616,9 @@ void __init irq_pipeline_init(void)
 	synthetic_irq_domain = irq_domain_add_nomap(NULL, ~0,
 						    &sirq_domain_ops,
 						    NULL);
+	root_work_sirq = irq_create_direct_mapping(synthetic_irq_domain);
+	setup_percpu_irq(root_work_sirq, &root_work);
+
 	/*
 	 * We are running on the boot CPU, hw interrupts are off, and
 	 * secondary CPUs are still lost in space. Now we may run
