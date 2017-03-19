@@ -795,6 +795,20 @@ config DEBUG_IRQ_PIPELINE
 	  
 	  If unsure, say N.
   
+config IRQ_PIPELINE_TORTURE_TEST
+	tristate "Torture tests for IRQ pipeline"
+	depends on DEBUG_IRQ_PIPELINE && DEBUG_KERNEL
+	select TORTURE_TEST
+	default n
+	help
+	  This option provides a kernel module that runs torture tests
+	  on the IRQ pipeline mechanism.  The kernel module may be built
+	  after the fact on the running kernel to be tested, if desired.
+
+	  Say Y here if you want IRQ pipeline torture tests to be
+	  built into the kernel.  Say M if you want these torture
+	  tests to build as a module.  Say N if you are unsure.
+
 menu "Debug Lockups and Hangs"
 
 config LOCKUP_DETECTOR
