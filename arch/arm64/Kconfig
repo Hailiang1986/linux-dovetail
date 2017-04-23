@@ -141,6 +141,7 @@ config ARM64
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	select HAVE_ARCH_VMAP_STACK
+	select HAVE_ARCH_EVENLESS
 	select HAVE_ARM_SMCCC
 	select HAVE_ASM_MODVERSIONS
 	select HAVE_EBPF_JIT
@@ -1808,6 +1809,8 @@ config STACKPROTECTOR_PER_TASK
 	depends on STACKPROTECTOR && CC_HAVE_STACKPROTECTOR_SYSREG
 
 endmenu
+
+source "kernel/Kconfig.evenless"
 
 menu "Boot options"
 
