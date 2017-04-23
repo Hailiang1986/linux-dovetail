@@ -264,6 +264,10 @@ KBUILD_CPPFLAGS += $(patsubst %,-I$(srctree)/%include,$(machdirs) $(platdirs))
 endif
 endif
 
+ifeq ($(CONFIG_EVENLESS),y)
+KBUILD_CFLAGS += -Iarch/$(SRCARCH)/evenless/include -Iinclude/evenless
+endif
+
 export	TEXT_OFFSET GZFLAGS MMUEXT
 
 core-y				+= arch/arm/
