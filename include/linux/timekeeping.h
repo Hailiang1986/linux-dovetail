@@ -54,6 +54,7 @@ extern ktime_t ktime_get(void);
 extern ktime_t ktime_get_with_offset(enum tk_offsets offs);
 extern ktime_t ktime_mono_to_any(ktime_t tmono, enum tk_offsets offs);
 extern ktime_t ktime_get_raw(void);
+extern ktime_t ktime_get_real_fast(void);
 extern u32 ktime_get_resolution_ns(void);
 
 /**
