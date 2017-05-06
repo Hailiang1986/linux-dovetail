@@ -5,6 +5,7 @@
 #ifndef __ASSEMBLY__
 
 #include <vdso/datapage.h>
+#include <linux/irq_pipeline.h>
 
 static __always_inline u32 vdso_read_begin(const struct vdso_data *vd)
 {
@@ -34,6 +35,7 @@ static __always_inline void vdso_write_begin(struct vdso_data *vd)
 	 * updates to vd[x].seq and it is possible that the value seen by the
 	 * reader it is inconsistent.
 	 */
+	hard_cond_local_irq_disable();
 	WRITE_ONCE(vd[CS_HRES_COARSE].seq, vd[CS_HRES_COARSE].seq + 1);
 	WRITE_ONCE(vd[CS_RAW].seq, vd[CS_RAW].seq + 1);
 	smp_wmb();
@@ -49,6 +51,7 @@ static __always_inline void vdso_write_end(struct vdso_data *vd)
 	 */
 	WRITE_ONCE(vd[CS_HRES_COARSE].seq, vd[CS_HRES_COARSE].seq + 1);
 	WRITE_ONCE(vd[CS_RAW].seq, vd[CS_RAW].seq + 1);
+	hard_cond_local_irq_enable();
 }
 
 #endif /* !__ASSEMBLY__ */
