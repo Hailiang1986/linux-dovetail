@@ -338,6 +338,10 @@ void dovetail_hypervisor_stall(void)
 EXPORT_SYMBOL_GPL(dovetail_hypervisor_stall);
 #endif
 
+void __weak dovetail_clock_set(void)
+{
+}
+
 int dovetail_start(void)
 {
 	check_root_stage();

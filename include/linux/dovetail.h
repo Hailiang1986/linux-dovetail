@@ -46,6 +46,9 @@ void dovetail_handle_trap(unsigned int trapnr,
 
 void dovetail_handle_kevent(int event, void *data);
 
+
+void dovetail_clock_set(void);
+
 #ifdef CONFIG_DOVETAIL_TRACK_VM_GUEST
 void dovetail_hypervisor_stall(void);
 #else
@@ -224,6 +227,8 @@ static inline void dovetail_clear_callouts(struct irq_stage_data *p) { }
 
 #define dovetail_switch_mm_exit(flags)	\
   do { (void)(flags); } while (0)
+
+static inline void dovetail_clock_set(void) { }
 
 #endif	/* !CONFIG_DOVETAIL */
 
