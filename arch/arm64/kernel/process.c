@@ -123,7 +123,7 @@ void arch_cpu_idle(void)
 	 */
 	trace_cpu_idle_rcuidle(1, smp_processor_id());
 	cpu_do_idle();
-	local_irq_enable();
+	local_irq_enable_full();
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, smp_processor_id());
 }
 
@@ -642,7 +642,8 @@ core_initcall(tagged_addr_init);
 
 asmlinkage void __sched arm64_preempt_schedule_irq(void)
 {
-	lockdep_assert_irqs_disabled();
+	if (!irqs_pipelined())
+		lockdep_assert_irqs_disabled();
 
 	/*
 	 * Preempting a task from an IRQ means we leave copies of PSTATE

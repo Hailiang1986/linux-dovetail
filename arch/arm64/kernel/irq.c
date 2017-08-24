@@ -12,6 +12,7 @@
 
 #include <linux/kernel_stat.h>
 #include <linux/irq.h>
+#include <linux/irq_pipeline.h>
 #include <linux/memory.h>
 #include <linux/smp.h>
 #include <linux/init.h>
@@ -21,6 +22,7 @@
 #include <linux/vmalloc.h>
 #include <asm/daifflags.h>
 #include <asm/vmap_stack.h>
+#include <asm/exception.h>
 
 unsigned long irq_err_count;
 
@@ -35,6 +37,16 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	seq_printf(p, "%*s: %10lu\n", prec, "Err", irq_err_count);
 	return 0;
 }
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+asmlinkage int __exception_irq_entry
+handle_arch_irq_pipelined(struct pt_regs *regs)
+{
+	return handle_irq_pipelined(regs);
+}
+
+#endif
 
 #ifdef CONFIG_VMAP_STACK
 static void init_irq_stacks(void)
