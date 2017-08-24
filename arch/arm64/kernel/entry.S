@@ -384,6 +384,21 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	.macro	irq_stack_entry
 	mov	x19, sp			// preserve the original sp
 
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * When the pipeline is enabled, context switches over the irq
+	 * stack are allowed (for the co-kernel), and more interrupts
+	 * can be taken over sibling stack contexts. So we need a not so
+	 * subtle way of figuring out whether the irq stack was actually
+	 * exited, which cannot depend on the current task pointer.
+	 */
+	adr_this_cpu x25, irq_nesting, x26
+	ldr	w26, [x25]
+	cmp	w26, #0
+	add	w26, w26, #1
+	str	w26, [x25]
+	b.ne	9998f
+#else
 	/*
 	 * Compare sp with the base of the task stack.
 	 * If the top ~(THREAD_SIZE - 1) bits match, we are on a task stack,
@@ -393,6 +408,7 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	eor	x25, x25, x19
 	and	x25, x25, #~(THREAD_SIZE - 1)
 	cbnz	x25, 9998f
+#endif
 
 	ldr_this_cpu x25, irq_stack_ptr, x26
 	mov	x26, #IRQ_STACK_SIZE
@@ -405,10 +421,17 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 
 	/*
 	 * x19 should be preserved between irq_stack_entry and
-	 * irq_stack_exit.
+	 * irq_stack_exit. IRQ_PIPELINE: caution, we have to
+	 * preserve w0.
 	 */
 	.macro	irq_stack_exit
 	mov	sp, x19
+#ifdef CONFIG_DOVETAIL
+	adr_this_cpu x1, irq_nesting, x2
+	ldr	w2, [x1]
+	add	w2, w2, #-1
+	str	w2, [x1]
+#endif
 	.endm
 
 /* GPRs used by entry code */
@@ -418,7 +441,11 @@ tsk	.req	x28		// current thread_info
  * Interrupt handling.
  */
 	.macro	irq_handler
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	x1, =handle_arch_irq_pipelined
+#else
 	ldr_l	x1, handle_arch_irq
+#endif
 	mov	x0, sp
 	irq_stack_entry
 	blr	x1
@@ -669,6 +696,10 @@ el1_irq:
 
 	irq_handler
 
+#ifdef CONFIG_IRQ_PIPELINE
+	cbz     w0, 66f
+#endif
+
 #ifdef CONFIG_PREEMPT
 	ldr	x24, [tsk, #TSK_TI_PREEMPT]	// get preempt count
 alternative_if ARM64_HAS_IRQ_PRIO_MASKING
@@ -684,6 +715,7 @@ alternative_else_nop_endif
 1:
 #endif
 
+66:
 #ifdef CONFIG_ARM64_PSEUDO_NMI
 	/*
 	 * When using IRQ priority masking, we can get spurious interrupts while
@@ -701,7 +733,7 @@ alternative_else_nop_endif
 	test_irqs_unmasked	res=x0, pmr=x20
 	cbnz	x0, 1f
 #endif
-	bl	trace_hardirqs_on
+	bl	trace_hardirqs_on_pipelined
 1:
 #endif
 
@@ -940,12 +972,23 @@ el0_irq_naked:
 1:
 #endif
 	irq_handler
-
-#ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_on
+#ifdef CONFIG_IRQ_PIPELINE
+	cbz	w0, work_done_el0
 #endif
-	b	ret_to_user
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_on_pipelined
+#endif
+	disable_daif
+	b	ret_to_user_noirq
 ENDPROC(el0_irq)
+
+#ifdef CONFIG_IRQ_PIPELINE
+work_done_el0:
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_on_pipelined
+#endif
+	b	work_done
+#endif
 
 el1_error:
 	kernel_entry 1
@@ -980,6 +1023,7 @@ work_pending:
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_on		// enabled while in userspace
 #endif
+work_done:
 	ldr	x1, [tsk, #TSK_TI_FLAGS]	// re-check for single-step
 	b	finish_ret_to_user
 /*
@@ -988,6 +1032,12 @@ work_pending:
 ret_to_user:
 	disable_daif
 	gic_prio_kentry_setup tmp=x3
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	x0, [tsk, #TSK_TI_LOCAL_FLAGS]
+	tst	x0, #_TLF_OOB
+	b.ne	work_done
+#endif
+ret_to_user_noirq:
 	ldr	x1, [tsk, #TSK_TI_FLAGS]
 	and	x2, x1, #_TIF_WORK_MASK
 	cbnz	x2, work_pending
@@ -1163,6 +1213,7 @@ NOKPROBE(cpu_switch_to)
  * This is how we return from a fork.
  */
 ENTRY(ret_from_fork)
+	enable_irq_if_pipelined
 	bl	schedule_tail
 	cbz	x19, 1f				// not a kernel thread
 	mov	x0, x20
