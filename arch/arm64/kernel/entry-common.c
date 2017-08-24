@@ -12,6 +12,7 @@
 #include <linux/sched.h>
 #include <linux/sched/debug.h>
 #include <linux/thread_info.h>
+#include <linux/irq_pipeline.h>
 
 #include <asm/cpufeature.h>
 #include <asm/daifflags.h>
@@ -29,7 +30,7 @@
  * This is intended to match the logic in irqentry_enter(), handling the kernel
  * mode transitions only.
  */
-static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
+static void noinstr __enter_from_kernel_mode(struct pt_regs *regs)
 {
 	regs->exit_rcu = false;
 
@@ -49,11 +50,50 @@ static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
 	mte_check_tfsr_entry();
 }
 
+static void noinstr enter_from_kernel_mode(struct pt_regs *regs)
+{
+#ifdef CONFIG_IRQ_PIPELINE
+	/*
+	 * CAUTION: we may switch in-band as a result of handling a
+	 * trap, so if we are running out-of-band, we must make sure
+	 * not to perform the RCU exit since we did not enter it in
+	 * the first place.
+	 */
+	regs->oob_on_entry = running_oob();
+	if (regs->oob_on_entry) {
+		regs->exit_rcu = false;
+		return;
+	}
+
+	/*
+	 * We trapped from kernel space running in-band, we need to
+	 * record the virtual interrupt state into the current
+	 * register frame (regs->stalled_on_entry) in order to
+	 * reinstate it from exit_to_kernel_mode(). Next we stall the
+	 * in-band stage in order to mirror the current hardware state
+	 * (i.e. hardirqs are off).
+	 */
+	regs->stalled_on_entry = test_and_stall_inband_nocheck();
+#endif
+
+	__enter_from_kernel_mode(regs);
+
+#ifdef CONFIG_IRQ_PIPELINE
+	/*
+	 * Our caller is going to inherit the hardware interrupt state
+	 * from the trapped context once we have returned: if running
+	 * in-band, align the stall bit on the upcoming state.
+	 */
+	if (running_inband() && interrupts_enabled(regs))
+		unstall_inband_nocheck();
+#endif
+}
+
 /*
  * This is intended to match the logic in irqentry_exit(), handling the kernel
  * mode transitions only, and with preemption handled elsewhere.
  */
-static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
+static void noinstr __exit_to_kernel_mode(struct pt_regs *regs)
 {
 	lockdep_assert_irqs_disabled();
 
@@ -75,8 +115,31 @@ static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
 	}
 }
 
+static void noinstr exit_to_kernel_mode(struct pt_regs *regs)
+{
+	if (running_oob())
+		return;
+
+	__exit_to_kernel_mode(regs);
+
+#ifdef CONFIG_IRQ_PIPELINE
+	/*
+	 * Reinstate the virtual interrupt state which was in effect
+	 * on entry to the trap.
+	 */
+	if (!regs->oob_on_entry) {
+		if (regs->stalled_on_entry)
+			stall_inband_nocheck();
+		else
+			unstall_inband_nocheck();
+	}
+#endif
+	return;
+}
+
 static void noinstr arm64_enter_nmi(struct pt_regs *regs)
 {
+	/* irq_pipeline: running this code oob is ok. */
 	regs->lockdep_hardirqs = lockdep_hardirqs_enabled();
 
 	__nmi_enter();
@@ -107,22 +170,95 @@ static void noinstr arm64_exit_nmi(struct pt_regs *regs)
 
 static void noinstr enter_el1_irq_or_nmi(struct pt_regs *regs)
 {
-	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs))
+	/*
+	 * IRQ pipeline: the interrupt entry is special in that we may
+	 * run the regular kernel entry prologue/epilogue only if the
+	 * IRQ is going to be dispatched to its handler on behalf of
+	 * the current context, i.e. only if running in-band and
+	 * unstalled. If so, we also have to reconcile the hardware
+	 * and virtual interrupt states temporarily in order to run
+	 * such prologue.
+	 */
+	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs)) {
 		arm64_enter_nmi(regs);
-	else
-		enter_from_kernel_mode(regs);
+	} else {
+#ifdef CONFIG_IRQ_PIPELINE
+		if (running_inband()) {
+			regs->stalled_on_entry = test_inband_stall();
+			if (!regs->stalled_on_entry) {
+				stall_inband_nocheck();
+				__enter_from_kernel_mode(regs);
+				unstall_inband_nocheck();
+				return;
+			}
+		}
+#else
+		__enter_from_kernel_mode(regs);
+#endif
+	}
 }
 
 static void noinstr exit_el1_irq_or_nmi(struct pt_regs *regs)
 {
-	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs))
+	if (IS_ENABLED(CONFIG_ARM64_PSEUDO_NMI) && !interrupts_enabled(regs)) {
 		arm64_exit_nmi(regs);
-	else
-		exit_to_kernel_mode(regs);
+	} else {
+#ifdef CONFIG_IRQ_PIPELINE
+		/*
+		 * See enter_el1_irq_or_nmi() for details. UGLY: we
+		 * also have to tell the tracer that irqs are off,
+		 * since sync_current_irq_stage() did the opposite on
+		 * exit. Hopefully, at some point arm64 will convert
+		 * to the generic entry code which exhibits a less
+		 * convoluted logic.
+		 */
+		if (running_inband() && !regs->stalled_on_entry) {
+			stall_inband_nocheck();
+			trace_hardirqs_off();
+			__exit_to_kernel_mode(regs);
+			unstall_inband_nocheck();
+		}
+#else
+		__exit_to_kernel_mode(regs);
+#endif
+	}
 }
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+/*
+ * When pipelining interrupts, we have to reconcile the hardware and
+ * the virtual states. Hard irqs are off on entry while the current
+ * stage has to be unstalled: fix this up by stalling the in-band
+ * stage on entry, unstalling on exit.
+ */
+static inline void arm64_preempt_irq_enter(void)
+{
+	WARN_ON_ONCE(irq_pipeline_debug() && test_inband_stall());
+	stall_inband_nocheck();
+	trace_hardirqs_off();
+}
+
+static inline void arm64_preempt_irq_exit(void)
+{
+	trace_hardirqs_on();
+	unstall_inband_nocheck();
+}
+
+#else
+
+static inline void arm64_preempt_irq_enter(void)
+{ }
+
+static inline void arm64_preempt_irq_exit(void)
+{ }
+
+#endif
 
 static void __sched arm64_preempt_schedule_irq(void)
 {
+	arm64_preempt_irq_enter();
+
 	lockdep_assert_irqs_disabled();
 
 	/*
@@ -132,7 +268,7 @@ static void __sched arm64_preempt_schedule_irq(void)
 	 * DAIF we must have handled an NMI, so skip preemption.
 	 */
 	if (system_uses_irq_prio_masking() && read_sysreg(daif))
-		return;
+		goto out;
 
 	/*
 	 * Preempting a task from an IRQ means we leave copies of PSTATE
@@ -144,16 +280,39 @@ static void __sched arm64_preempt_schedule_irq(void)
 	 */
 	if (system_capabilities_finalized())
 		preempt_schedule_irq();
+out:
+	arm64_preempt_irq_exit();
 }
 
-static void do_interrupt_handler(struct pt_regs *regs,
-				 void (*handler)(struct pt_regs *))
+static void __do_interrupt_handler(struct pt_regs *regs,
+				void (*handler)(struct pt_regs *))
 {
 	if (on_thread_stack())
 		call_on_irq_stack(regs, handler);
 	else
 		handler(regs);
 }
+
+#ifdef CONFIG_IRQ_PIPELINE
+static int do_interrupt_handler(struct pt_regs *regs,
+				 void (*handler)(struct pt_regs *))
+{
+	if (handler == handle_arch_irq)
+		handler = (void (*)(struct pt_regs *))handle_irq_pipelined;
+
+	__do_interrupt_handler(regs, handler);
+
+	return running_inband() && !irqs_disabled();
+}
+#else
+static int do_interrupt_handler(struct pt_regs *regs,
+				 void (*handler)(struct pt_regs *))
+{
+	__do_interrupt_handler(regs, handler);
+
+	return 0;
+}
+#endif
 
 extern void (*handle_arch_irq)(struct pt_regs *);
 extern void (*handle_arch_fiq)(struct pt_regs *);
@@ -345,17 +504,19 @@ asmlinkage void noinstr el1h_64_sync_handler(struct pt_regs *regs)
 static void noinstr el1_interrupt(struct pt_regs *regs,
 				  void (*handler)(struct pt_regs *))
 {
+	int ret;
+
 	write_sysreg(DAIF_PROCCTX_NOIRQ, daif);
 
 	enter_el1_irq_or_nmi(regs);
-	do_interrupt_handler(regs, handler);
+	ret = do_interrupt_handler(regs, handler);
 
 	/*
 	 * Note: thread_info::preempt_count includes both thread_info::count
 	 * and thread_info::need_resched, and is not equivalent to
 	 * preempt_count().
 	 */
-	if (IS_ENABLED(CONFIG_PREEMPTION) &&
+	if (IS_ENABLED(CONFIG_PREEMPTION) && ret &&
 	    READ_ONCE(current_thread_info()->preempt_count) == 0)
 		arm64_preempt_schedule_irq();
 
@@ -384,20 +545,29 @@ asmlinkage void noinstr el1h_64_error_handler(struct pt_regs *regs)
 
 asmlinkage void noinstr enter_from_user_mode(void)
 {
-	lockdep_hardirqs_off(CALLER_ADDR0);
-	CT_WARN_ON(ct_state() != CONTEXT_USER);
-	user_exit_irqoff();
-	trace_hardirqs_off_finish();
+	if (running_inband()) {
+		lockdep_hardirqs_off(CALLER_ADDR0);
+		WARN_ON_ONCE(irq_pipeline_debug() && test_inband_stall());
+		CT_WARN_ON(ct_state() != CONTEXT_USER);
+		stall_inband_nocheck();
+		user_exit_irqoff();
+		unstall_inband_nocheck();
+		trace_hardirqs_off_finish();
+	}
 }
 
 asmlinkage void noinstr exit_to_user_mode(void)
 {
 	mte_check_tfsr_exit();
 
-	trace_hardirqs_on_prepare();
-	lockdep_hardirqs_on_prepare(CALLER_ADDR0);
-	user_enter_irqoff();
-	lockdep_hardirqs_on(CALLER_ADDR0);
+	if (running_inband()) {
+		stall_inband_nocheck();
+		trace_hardirqs_on_prepare();
+		lockdep_hardirqs_on_prepare(CALLER_ADDR0);
+		user_enter_irqoff();
+		lockdep_hardirqs_on(CALLER_ADDR0);
+		unstall_inband_nocheck();
+	}
 }
 
 static void noinstr el0_da(struct pt_regs *regs, unsigned long esr)
@@ -571,27 +741,29 @@ asmlinkage void noinstr el0t_64_sync_handler(struct pt_regs *regs)
 	}
 }
 
-static void noinstr el0_interrupt(struct pt_regs *regs,
+static int noinstr el0_interrupt(struct pt_regs *regs,
 				  void (*handler)(struct pt_regs *))
 {
-	enter_from_user_mode();
+	if (handler == handle_arch_fiq ||
+		(running_inband() && !test_inband_stall()))
+		enter_from_user_mode();
 
 	write_sysreg(DAIF_PROCCTX_NOIRQ, daif);
 
 	if (regs->pc & BIT(55))
 		arm64_apply_bp_hardening();
 
-	do_interrupt_handler(regs, handler);
+	return do_interrupt_handler(regs, handler);
 }
 
-static void noinstr __el0_irq_handler_common(struct pt_regs *regs)
+static int noinstr __el0_irq_handler_common(struct pt_regs *regs)
 {
-	el0_interrupt(regs, handle_arch_irq);
+	return el0_interrupt(regs, handle_arch_irq);
 }
 
-asmlinkage void noinstr el0t_64_irq_handler(struct pt_regs *regs)
+asmlinkage int noinstr el0t_64_irq_handler(struct pt_regs *regs)
 {
-	__el0_irq_handler_common(regs);
+	return __el0_irq_handler_common(regs);
 }
 
 static void noinstr __el0_fiq_handler_common(struct pt_regs *regs)
@@ -680,9 +852,9 @@ asmlinkage void noinstr el0t_32_sync_handler(struct pt_regs *regs)
 	}
 }
 
-asmlinkage void noinstr el0t_32_irq_handler(struct pt_regs *regs)
+asmlinkage int noinstr el0t_32_irq_handler(struct pt_regs *regs)
 {
-	__el0_irq_handler_common(regs);
+	return __el0_irq_handler_common(regs);
 }
 
 asmlinkage void noinstr el0t_32_fiq_handler(struct pt_regs *regs)

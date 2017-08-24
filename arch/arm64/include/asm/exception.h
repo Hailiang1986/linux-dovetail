@@ -44,12 +44,12 @@ asmlinkage void el1h_64_fiq_handler(struct pt_regs *regs);
 asmlinkage void el1h_64_error_handler(struct pt_regs *regs);
 
 asmlinkage void el0t_64_sync_handler(struct pt_regs *regs);
-asmlinkage void el0t_64_irq_handler(struct pt_regs *regs);
+asmlinkage int el0t_64_irq_handler(struct pt_regs *regs);
 asmlinkage void el0t_64_fiq_handler(struct pt_regs *regs);
 asmlinkage void el0t_64_error_handler(struct pt_regs *regs);
 
 asmlinkage void el0t_32_sync_handler(struct pt_regs *regs);
-asmlinkage void el0t_32_irq_handler(struct pt_regs *regs);
+asmlinkage int el0t_32_irq_handler(struct pt_regs *regs);
 asmlinkage void el0t_32_fiq_handler(struct pt_regs *regs);
 asmlinkage void el0t_32_error_handler(struct pt_regs *regs);
 

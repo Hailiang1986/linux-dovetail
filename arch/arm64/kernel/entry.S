@@ -551,6 +551,11 @@ SYM_CODE_START_LOCAL(el\el\ht\()_\regsize\()_\label)
 	mov	x0, sp
 	bl	el\el\ht\()_\regsize\()_\label\()_handler
 	.if \el == 0
+#ifdef CONFIG_IRQ_PIPELINE
+	.if \label == irq
+	cbz	w0, fast_ret_from_el0_irq
+	.endif
+#endif
 	b	ret_to_user
 	.else
 	b	ret_to_kernel
@@ -591,6 +596,11 @@ SYM_CODE_END(ret_to_kernel)
 SYM_CODE_START_LOCAL(ret_to_user)
 	disable_daif
 	gic_prio_kentry_setup tmp=x3
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	x0, [tsk, #TSK_TI_LOCAL_FLAGS]
+	tst	x0, #_TLF_OOB
+	b.ne	fast_ret_to_user
+#endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_off
 #endif
@@ -600,6 +610,7 @@ SYM_CODE_START_LOCAL(ret_to_user)
 finish_ret_to_user:
 	user_enter_irqoff
 	/* Ignore asynchronous tag check faults in the uaccess routines */
+ret_to_user_naked:
 	clear_mte_async_tcf
 	enable_step_tsk x19, x2
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
@@ -607,6 +618,15 @@ finish_ret_to_user:
 #endif
 	kernel_exit 0
 
+#ifdef CONFIG_IRQ_PIPELINE
+fast_ret_from_el0_irq:	
+ 	disable_daif
+ 	gic_prio_kentry_setup tmp=x3
+fast_ret_to_user:
+	ldr	x19, [tsk, #TSK_TI_FLAGS]
+	b	ret_to_user_naked
+#endif
+	
 /*
  * Ok, we need to do extra processing, enter the slow path.
  */
