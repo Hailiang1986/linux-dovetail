@@ -407,6 +407,21 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	mov	x24, scs_sp		// preserve the original shadow stack
 #endif
 
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * When the pipeline is enabled, context switches over the irq
+	 * stack are allowed (for the co-kernel), and more interrupts
+	 * can be taken over sibling stack contexts. So we need a not so
+	 * subtle way of figuring out whether the irq stack was actually
+	 * exited, which cannot depend on the current task pointer.
+	 */
+	adr_this_cpu x25, irq_nesting, x26
+	ldr	w26, [x25]
+	cmp	w26, #0
+	add	w26, w26, #1
+	str	w26, [x25]
+	b.ne	9998f
+#else
 	/*
 	 * Compare sp with the base of the task stack.
 	 * If the top ~(THREAD_SIZE - 1) bits match, we are on a task stack,
@@ -416,6 +431,7 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	eor	x25, x25, x19
 	and	x25, x25, #~(THREAD_SIZE - 1)
 	cbnz	x25, 9998f
+#endif
 
 	ldr_this_cpu x25, irq_stack_ptr, x26
 	mov	x26, #IRQ_STACK_SIZE
@@ -436,11 +452,18 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	 * The callee-saved regs (x19-x29) should be preserved between
 	 * irq_stack_entry and irq_stack_exit, but note that kernel_entry
 	 * uses x20-x23 to store data for later use.
+	 * IRQ_PIPELINE: caution, we have to preserve w0.
 	 */
 	.macro	irq_stack_exit
 	mov	sp, x19
 #ifdef CONFIG_SHADOW_CALL_STACK
 	mov	scs_sp, x24
+#endif
+#ifdef CONFIG_DOVETAIL
+	adr_this_cpu x1, irq_nesting, x2
+	ldr	w2, [x1]
+	add	w2, w2, #-1
+	str	w2, [x1]
 #endif
 	.endm
 
@@ -451,7 +474,11 @@ tsk	.req	x28		// current thread_info
  * Interrupt handling.
  */
 	.macro	irq_handler
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	x1, =handle_arch_irq_pipelined
+#else
 	ldr_l	x1, handle_arch_irq
+#endif
 	mov	x0, sp
 	irq_stack_entry
 	blr	x1
@@ -630,10 +657,14 @@ SYM_CODE_START_LOCAL_NOALIGN(el1_irq)
 #endif
 
 #ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_off
+	bl	trace_hardirqs_off_pipelined
 #endif
 
 	irq_handler
+
+#ifdef CONFIG_IRQ_PIPELINE
+	cbz     w0, 66f				// skip epilogue if oob or in-band stalled
+#endif
 
 #ifdef CONFIG_PREEMPTION
 	ldr	x24, [tsk, #TSK_TI_PREEMPT]	// get preempt count
@@ -650,6 +681,7 @@ alternative_else_nop_endif
 1:
 #endif
 
+66:
 #ifdef CONFIG_ARM64_PSEUDO_NMI
 	/*
 	 * When using IRQ priority masking, we can get spurious interrupts while
@@ -667,7 +699,7 @@ alternative_else_nop_endif
 	test_irqs_unmasked	res=x0, pmr=x20
 	cbnz	x0, 1f
 #endif
-	bl	trace_hardirqs_on
+	bl	trace_hardirqs_on_pipelined
 1:
 #endif
 
@@ -711,12 +743,11 @@ SYM_CODE_START_LOCAL_NOALIGN(el0_irq)
 	kernel_entry 0
 el0_irq_naked:
 	gic_prio_irq_setup pmr=x20, tmp=x0
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_off_pipelined
+#endif
 	ct_user_exit_irqoff
 	enable_da_f
-
-#ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_off
-#endif
 
 #ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
 	tbz	x22, #55, 1f
@@ -725,6 +756,16 @@ el0_irq_naked:
 #endif
 	irq_handler
 
+#ifdef CONFIG_IRQ_PIPELINE
+	cbnz	w0, 1f			// skip epilogue if oob (user cannot be stalled)
+ 	disable_daif
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_on_pipelined
+#endif
+ 	gic_prio_kentry_setup tmp=x3
+	b	ret_to_user_noirq
+1:
+#endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_on
 #endif
@@ -761,6 +802,12 @@ SYM_CODE_END(el0_error)
 SYM_CODE_START_LOCAL(ret_to_user)
 	disable_daif
 	gic_prio_kentry_setup tmp=x3
+#ifdef CONFIG_IRQ_PIPELINE
+	ldr	x0, [tsk, #TSK_TI_LOCAL_FLAGS]
+	tst	x0, #_TLF_OOB
+	b.ne	work_done
+#endif
+ret_to_user_noirq:
 	ldr	x1, [tsk, #TSK_TI_FLAGS]
 	and	x2, x1, #_TIF_WORK_MASK
 	cbnz	x2, work_pending
@@ -777,6 +824,7 @@ finish_ret_to_user:
 work_pending:
 	mov	x0, sp				// 'regs'
 	bl	do_notify_resume
+work_done:
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_on		// enabled while in userspace
 #endif

@@ -174,7 +174,7 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 	return ret;
 }
 
-static DEFINE_RAW_SPINLOCK(die_lock);
+static DEFINE_HARD_SPINLOCK(die_lock);
 
 /*
  * This function is protected against re-entrancy.
@@ -346,7 +346,7 @@ void arm64_skip_faulting_instruction(struct pt_regs *regs, unsigned long size)
 }
 
 static LIST_HEAD(undef_hook);
-static DEFINE_RAW_SPINLOCK(undef_lock);
+static DEFINE_HARD_SPINLOCK(undef_lock);
 
 void register_undef_hook(struct undef_hook *hook)
 {
@@ -930,8 +930,14 @@ asmlinkage void do_serror(struct pt_regs *regs, unsigned int esr)
 
 asmlinkage void enter_from_user_mode(void)
 {
-	CT_WARN_ON(ct_state() != CONTEXT_USER);
-	user_exit_irqoff();
+	if (running_inband()) {
+		stall_inband_nocheck();
+		trace_hardirqs_off();
+		CT_WARN_ON(ct_state() != CONTEXT_USER);
+		user_exit_irqoff();
+		unstall_inband_nocheck();
+		trace_hardirqs_on();
+	}
 }
 NOKPROBE_SYMBOL(enter_from_user_mode);
 

@@ -8,6 +8,7 @@
 #include <linux/context_tracking.h>
 #include <linux/ptrace.h>
 #include <linux/thread_info.h>
+#include <linux/irqstage.h>
 
 #include <asm/cpufeature.h>
 #include <asm/daifflags.h>
@@ -17,36 +18,120 @@
 #include <asm/mmu.h>
 #include <asm/sysreg.h>
 
+#ifdef CONFIG_IRQ_PIPELINE
+
+#define ARM64_ENTRY_STALLED  BIT(0)
+#define ARM64_ENTRY_OOB      BIT(1)
+
+static inline int el1_entry_pipelined(struct pt_regs *regs) /* hard irqs off */
+{
+	int irqstate;
+
+	if (running_oob())
+		return ARM64_ENTRY_OOB;
+
+	irqstate = test_inband_stall() ? ARM64_ENTRY_STALLED : 0;
+
+	if (!interrupts_enabled(regs))
+		stall_inband();
+	else
+		unstall_inband();
+
+	local_daif_inherit(regs);
+
+	return irqstate;
+}
+
+static inline void el1_exit_pipelined(int irqstate, struct pt_regs *regs)
+{
+	if (running_oob())
+		return;
+
+	if ((irqstate & (ARM64_ENTRY_STALLED|ARM64_ENTRY_OOB))
+		== ARM64_ENTRY_STALLED)
+		stall_inband();
+	else
+		unstall_inband();
+}
+
+static inline void el0_exit_pipelined(void) /* hard irqs off */
+{
+	WARN_ON_ONCE(irq_pipeline_debug() && !hard_irqs_disabled());
+
+	if (running_inband()) {
+		WARN_ON_ONCE(irq_pipeline_debug() && test_inband_stall());
+		stall_inband();
+		trace_hardirqs_off();
+		user_exit_irqoff();
+		trace_hardirqs_on();
+		unstall_inband();
+	} else {
+		user_exit_irqoff();
+	}
+
+	local_daif_restore(DAIF_PROCCTX);
+}
+
+#else
+
+static inline int el1_entry_pipelined(struct pt_regs *regs)
+{
+	local_daif_inherit(regs);
+
+	return 0;
+}
+
+static inline void el1_exit_pipelined(int irqstate, struct pt_regs *regs)
+{ }
+
+static inline void el0_exit_pipelined(void)
+{
+	user_exit_irqoff();
+	local_daif_restore(DAIF_PROCCTX);
+}
+
+#endif
+
 static void notrace el1_abort(struct pt_regs *regs, unsigned long esr)
 {
 	unsigned long far = read_sysreg(far_el1);
+	int irqstate;
 
-	local_daif_inherit(regs);
+	irqstate = el1_entry_pipelined(regs);
 	far = untagged_addr(far);
 	do_mem_abort(far, esr, regs);
+	el1_exit_pipelined(irqstate, regs);
 }
 NOKPROBE_SYMBOL(el1_abort);
 
 static void notrace el1_pc(struct pt_regs *regs, unsigned long esr)
 {
 	unsigned long far = read_sysreg(far_el1);
+	int irqstate;
 
-	local_daif_inherit(regs);
+	irqstate = el1_entry_pipelined(regs);
 	do_sp_pc_abort(far, esr, regs);
+	el1_exit_pipelined(irqstate, regs);
 }
 NOKPROBE_SYMBOL(el1_pc);
 
 static void notrace el1_undef(struct pt_regs *regs)
 {
-	local_daif_inherit(regs);
+	int irqstate;
+
+	irqstate = el1_entry_pipelined(regs);
 	do_undefinstr(regs);
+	el1_exit_pipelined(irqstate, regs);
 }
 NOKPROBE_SYMBOL(el1_undef);
 
 static void notrace el1_inv(struct pt_regs *regs, unsigned long esr)
 {
-	local_daif_inherit(regs);
+	int irqstate;
+
+	irqstate = el1_entry_pipelined(regs);
 	bad_mode(regs, 0, esr);
+	el1_exit_pipelined(irqstate, regs);
 }
 NOKPROBE_SYMBOL(el1_inv);
 
@@ -102,8 +187,7 @@ static void notrace el0_da(struct pt_regs *regs, unsigned long esr)
 {
 	unsigned long far = read_sysreg(far_el1);
 
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	far = untagged_addr(far);
 	do_mem_abort(far, esr, regs);
 }
@@ -121,40 +205,35 @@ static void notrace el0_ia(struct pt_regs *regs, unsigned long esr)
 	if (!is_ttbr0_addr(far))
 		arm64_apply_bp_hardening();
 
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_mem_abort(far, esr, regs);
 }
 NOKPROBE_SYMBOL(el0_ia);
 
 static void notrace el0_fpsimd_acc(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_fpsimd_acc(esr, regs);
 }
 NOKPROBE_SYMBOL(el0_fpsimd_acc);
 
 static void notrace el0_sve_acc(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_sve_acc(esr, regs);
 }
 NOKPROBE_SYMBOL(el0_sve_acc);
 
 static void notrace el0_fpsimd_exc(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_fpsimd_exc(esr, regs);
 }
 NOKPROBE_SYMBOL(el0_fpsimd_exc);
 
 static void notrace el0_sys(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_sysinstr(esr, regs);
 }
 NOKPROBE_SYMBOL(el0_sys);
@@ -166,40 +245,35 @@ static void notrace el0_pc(struct pt_regs *regs, unsigned long esr)
 	if (!is_ttbr0_addr(instruction_pointer(regs)))
 		arm64_apply_bp_hardening();
 
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_sp_pc_abort(far, esr, regs);
 }
 NOKPROBE_SYMBOL(el0_pc);
 
 static void notrace el0_sp(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_sp_pc_abort(regs->sp, esr, regs);
 }
 NOKPROBE_SYMBOL(el0_sp);
 
 static void notrace el0_undef(struct pt_regs *regs)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_undefinstr(regs);
 }
 NOKPROBE_SYMBOL(el0_undef);
 
 static void notrace el0_bti(struct pt_regs *regs)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	do_bti(regs);
 }
 NOKPROBE_SYMBOL(el0_bti);
 
 static void notrace el0_inv(struct pt_regs *regs, unsigned long esr)
 {
-	user_exit_irqoff();
-	local_daif_restore(DAIF_PROCCTX);
+	el0_exit_pipelined();
 	bad_el0_sync(regs, 0, esr);
 }
 NOKPROBE_SYMBOL(el0_inv);
@@ -215,6 +289,10 @@ static void notrace el0_dbg(struct pt_regs *regs, unsigned long esr)
 	user_exit_irqoff();
 	do_debug_exception(far, esr, regs);
 	local_daif_restore(DAIF_PROCCTX_NOIRQ);
+	if (running_inband()) {
+		unstall_inband();
+		trace_hardirqs_on();
+	}
 }
 NOKPROBE_SYMBOL(el0_dbg);
 
@@ -222,6 +300,9 @@ static void notrace el0_svc(struct pt_regs *regs)
 {
 	if (system_uses_irq_prio_masking())
 		gic_write_pmr(GIC_PRIO_IRQON | GIC_PRIO_PSR_I_SET);
+
+	WARN_ON_ONCE(dovetail_debug() &&
+		running_inband() && test_inband_stall());
 
 	do_el0_svc(regs);
 }
