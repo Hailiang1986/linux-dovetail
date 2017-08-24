@@ -247,7 +247,7 @@ void arm64_skip_faulting_instruction(struct pt_regs *regs, unsigned long size)
 }
 
 static LIST_HEAD(undef_hook);
-static DEFINE_RAW_SPINLOCK(undef_lock);
+static DEFINE_HARD_SPINLOCK(undef_lock);
 
 void register_undef_hook(struct undef_hook *hook)
 {

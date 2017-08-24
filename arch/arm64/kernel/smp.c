@@ -75,16 +75,6 @@ struct secondary_data secondary_data;
 /* Number of CPUs which aren't online, but looping in kernel text. */
 int cpus_stuck_in_kernel;
 
-enum ipi_msg_type {
-	IPI_RESCHEDULE,
-	IPI_CALL_FUNC,
-	IPI_CPU_STOP,
-	IPI_CPU_CRASH_STOP,
-	IPI_TIMER,
-	IPI_IRQ_WORK,
-	IPI_WAKEUP
-};
-
 #ifdef CONFIG_ARM64_VHE
 
 /* Whether the boot CPU is running in HYP mode or not*/
@@ -276,6 +266,7 @@ asmlinkage void secondary_start_kernel(void)
 	complete(&cpu_running);
 
 	local_daif_restore(DAIF_PROCCTX);
+	local_irq_enable_full();
 
 	/*
 	 * OK, it's off to the idle thread for us
@@ -771,13 +762,32 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	S(IPI_TIMER, "Timer broadcast interrupts"),
 	S(IPI_IRQ_WORK, "IRQ work interrupts"),
 	S(IPI_WAKEUP, "CPU wake-up interrupts"),
+#ifdef CONFIG_IRQ_PIPELINE
+	S(IPI_PIPELINE_STOP, "Pipeline stop interrupts"),
+	S(IPI_PIPELINE_TIMER, "OOB timer interrupts"),
+	S(IPI_PIPELINE_RESCHEDULE, "OOB rescheduling interrupts"),
+#endif
 };
 
-static void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
 {
 	trace_ipi_raise(target, ipi_types[ipinr]);
 	__smp_cross_call(target, ipinr);
 }
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+static inline
+void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
+{
+	__irq_pipeline_enter(ipinr + OOB_IPI_BASE, regs);
+}
+
+#else
+
+static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs) { }
+
+#endif /* CONFIG_IRQ_PIPELINE */
 
 void show_ipi_list(struct seq_file *p, int prec)
 {
@@ -870,7 +880,7 @@ static void ipi_cpu_crash_stop(unsigned int cpu, struct pt_regs *regs)
 /*
  * Main handler for inter-processor interrupts
  */
-void handle_IPI(int ipinr, struct pt_regs *regs)
+void __handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
@@ -930,6 +940,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		break;
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+	case IPI_PIPELINE_STOP ... IPI_PIPELINE_RESCHEDULE:
+		irq_enter();
+		generic_handle_irq(OOB_IPI_BASE + ipinr);
+		irq_exit();
+		break;
+#endif
+
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n", cpu, ipinr);
 		break;
@@ -938,6 +956,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
 	set_irq_regs(old_regs);
+}
+
+void handle_IPI(int ipinr, struct pt_regs *regs)
+{
+	if (irqs_pipelined())
+		handle_IPI_pipelined(ipinr, regs);
+	else
+		__handle_IPI(ipinr, regs);
 }
 
 void smp_send_reschedule(int cpu)

@@ -600,6 +600,11 @@ el1_irq:
 #endif
 
 	irq_handler
+#ifdef CONFIG_IRQ_PIPELINE
+	bl	__ipipe_check_root_interruptible
+	cmp w0, #1
+	b.ne	1f
+#endif
 
 #ifdef CONFIG_PREEMPT
 	ldr	w24, [tsk, #TSK_TI_PREEMPT]	// get preempt count
@@ -607,10 +612,10 @@ el1_irq:
 	ldr	x0, [tsk, #TSK_TI_FLAGS]	// get flags
 	tbz	x0, #TIF_NEED_RESCHED, 1f	// needs rescheduling?
 	bl	el1_preempt
-1:
 #endif
+1:
 #ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_on
+	bl	trace_hardirqs_exit
 #endif
 	kernel_exit 1
 ENDPROC(el1_irq)
@@ -838,9 +843,13 @@ el0_irq_naked:
 1:
 #endif
 	irq_handler
-
 #ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_on
+	bl	trace_hardirqs_exit
+#endif
+#ifdef CONFIG_IRQ_PIPELINE
+	bl	__ipipe_check_root_interruptible
+	cmp w0, #1
+	b.ne	finish_ret_to_user
 #endif
 	b	ret_to_user
 ENDPROC(el0_irq)
@@ -1152,6 +1161,7 @@ NOKPROBE(cpu_switch_to)
  * This is how we return from a fork.
  */
 ENTRY(ret_from_fork)
+	enable_irq_cond
 	bl	schedule_tail
 	cbz	x19, 1f				// not a kernel thread
 	mov	x0, x20
