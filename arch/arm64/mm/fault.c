@@ -257,11 +257,11 @@ static bool __kprobes is_spurious_el1_translation_fault(unsigned long addr,
 	    (esr & ESR_ELx_FSC_TYPE) != ESR_ELx_FSC_FAULT)
 		return false;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	asm volatile("at s1e1r, %0" :: "r" (addr));
 	isb();
 	par = read_sysreg(par_el1);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 
 	/*
 	 * If we now have a valid translation, treat the translation fault as
