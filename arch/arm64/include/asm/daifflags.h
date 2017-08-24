@@ -10,6 +10,12 @@
 #include <asm/arch_gicv3.h>
 #include <asm/cpufeature.h>
 
+/*
+ * irq_pipeline: DAIF masking is only used in contexts where hard
+ * interrupt masking applies, so no need to virtualize for the inband
+ * stage here (the pipeline core does assume this).
+ */
+
 #define DAIF_PROCCTX		0
 #define DAIF_PROCCTX_NOIRQ	PSR_I_BIT
 #define DAIF_ERRCTX		(PSR_I_BIT | PSR_A_BIT)
