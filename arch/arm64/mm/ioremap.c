@@ -70,6 +70,8 @@ static void __iomem *__ioremap_caller(phys_addr_t phys_addr, size_t size,
 		return NULL;
 	}
 
+	pin_mapping_globally(addr, addr + size);
+
 	return (void __iomem *)(offset + addr);
 }
 
