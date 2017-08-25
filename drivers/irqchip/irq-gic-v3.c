@@ -297,6 +297,19 @@ static void gic_eoimode1_eoi_irq(struct irq_data *d)
 	gic_write_dir(gic_irq(d));
 }
 
+static void gic_hold_irq(struct irq_data *d)
+{
+	struct irq_chip *chip = irq_data_get_irq_chip(d);
+	
+	/*
+	 * Same handling for both fasteoi and percpu_devid IRQs:
+	 * mask+eoi. Call indirectly via the handlers to account for
+	 * eoimode1.
+	 */
+	chip->irq_mask(d);
+	chip->irq_eoi(d);
+}
+
 static int gic_set_type(struct irq_data *d, unsigned int type)
 {
 	unsigned int irq = gic_irq(d);
@@ -796,11 +809,12 @@ static struct irq_chip gic_chip = {
 	.irq_mask		= gic_mask_irq,
 	.irq_unmask		= gic_unmask_irq,
 	.irq_eoi		= gic_eoi_irq,
+	.irq_hold		= gic_hold_irq,
 	.irq_set_type		= gic_set_type,
 	.irq_set_affinity	= gic_set_affinity,
 	.irq_get_irqchip_state	= gic_irq_get_irqchip_state,
 	.irq_set_irqchip_state	= gic_irq_set_irqchip_state,
-	.flags			= IRQCHIP_SET_TYPE_MASKED,
+	.flags			= IRQCHIP_SET_TYPE_MASKED | IRQCHIP_PIPELINE_SAFE,
 };
 
 static struct irq_chip gic_eoimode1_chip = {
@@ -808,12 +822,13 @@ static struct irq_chip gic_eoimode1_chip = {
 	.irq_mask		= gic_eoimode1_mask_irq,
 	.irq_unmask		= gic_unmask_irq,
 	.irq_eoi		= gic_eoimode1_eoi_irq,
+	.irq_hold		= gic_hold_irq,
 	.irq_set_type		= gic_set_type,
 	.irq_set_affinity	= gic_set_affinity,
 	.irq_get_irqchip_state	= gic_irq_get_irqchip_state,
 	.irq_set_irqchip_state	= gic_irq_set_irqchip_state,
 	.irq_set_vcpu_affinity	= gic_irq_set_vcpu_affinity,
-	.flags			= IRQCHIP_SET_TYPE_MASKED,
+	.flags			= IRQCHIP_SET_TYPE_MASKED | IRQCHIP_PIPELINE_SAFE,
 };
 
 #define GIC_ID_NR		(1U << gic_data.rdists.id_bits)
