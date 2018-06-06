@@ -393,8 +393,7 @@
 #ifdef CONFIG_IRQ_PIPELINE
 	ldr	\tmp, [tsk, #TI_LOCAL_FLAGS]
 	tst	\tmp, #_TLF_HEAD
- THUMB(	it ne)
-	bne	ret_to_user_from_irq_nocheck
+	bne	fast_ret_to_user
 #endif
 	b	ret_to_user
 	.endm

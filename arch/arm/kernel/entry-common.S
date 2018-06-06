@@ -153,11 +153,13 @@ ENTRY(ret_to_user_from_irq)
 	bne	slow_work_pending
 no_work_pending:
 	asm_trace_hardirqs_on save = 0
-ENTRY(ret_to_user_from_irq_nocheck)
 	slow_restore_user_regs
-ENDPROC(ret_to_user_from_irq_nocheck)
 ENDPROC(ret_to_user_from_irq)
 ENDPROC(ret_to_user)
+ENTRY(fast_ret_to_user)
+	disable_irq_notrace
+	b	no_work_pending
+ENDPROC(fast_ret_to_user)
 
 /*
  * This is how we return from a fork.
@@ -288,7 +290,7 @@ fastcall_exit_check:
 	bl	dovetail_call_mayday
 fast_ret_to_user_from_syscall:
 	disable_irq_notrace			@ disable interrupts
-	b	ret_to_user_from_irq_nocheck
+	b	fast_ret_to_user
 slow_path:
 	tst	r10, #_TLF_DOVETAIL
 	bne	pipeline_syscall

@@ -476,7 +476,7 @@ __irq_usr:
 	mov	why, #0
 #ifdef CONFIG_IRQ_PIPELINE
  THUMB(	it ne)
-	bne	ret_to_user_from_irq_nocheck	@ fast exit if root stage is stalled
+	bne	fast_ret_to_user	@ fast exit if root stage is stalled
 #endif
 	get_thread_info tsk
 	b	ret_to_user_from_irq
@@ -773,7 +773,7 @@ ENTRY(ret_from_exception)
  UNWIND(.cantunwind	)
 	get_thread_info tsk
 	mov	why, #0
-	ret_to_user_pipelined r2
+	ret_to_user_pipelined r1
  UNWIND(.fnend		)
 ENDPROC(__pabt_usr)
 ENDPROC(ret_from_exception)
