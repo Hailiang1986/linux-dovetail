@@ -14,6 +14,7 @@
 
 struct task_struct;
 
+#include <dovetail/thread_info.h>
 #include <asm/memory.h>
 #include <asm/stack_pointer.h>
 #include <asm/types.h>
@@ -44,6 +45,7 @@ struct thread_info {
 	void			*scs_sp;
 #endif
 	u32			cpu;
+	struct oob_thread_state	oob_state;
 };
 
 #define thread_saved_pc(tsk)	\
@@ -85,6 +87,7 @@ void arch_setup_new_exec(void);
 #define TIF_SME			27	/* SME in use */
 #define TIF_SME_VL_INHERIT	28	/* Inherit SME vl_onexec across exec */
 #define TIF_KERNEL_FPSTATE	29	/* Task is in a kernel mode FPSIMD section */
+#define TIF_MAYDAY		30	/* Emergency trap pending */
 
 #define _TIF_SIGPENDING		(1 << TIF_SIGPENDING)
 #define _TIF_NEED_RESCHED	(1 << TIF_NEED_RESCHED)
@@ -102,6 +105,7 @@ void arch_setup_new_exec(void);
 #define _TIF_MTE_ASYNC_FAULT	(1 << TIF_MTE_ASYNC_FAULT)
 #define _TIF_NOTIFY_SIGNAL	(1 << TIF_NOTIFY_SIGNAL)
 #define _TIF_RETUSER		(1 << TIF_RETUSER)
+#define _TIF_MAYDAY		(1 << TIF_MAYDAY)
 
 #define _TIF_WORK_MASK		(_TIF_NEED_RESCHED | _TIF_SIGPENDING | \
 				 _TIF_NOTIFY_RESUME | _TIF_FOREIGN_FPSTATE | \
@@ -131,5 +135,7 @@ void arch_setup_new_exec(void);
  * Local (synchronous) thread flags.
  */
 #define _TLF_OOB		0x0001
+#define _TLF_DOVETAIL		0x0002
+#define _TLF_OFFSTAGE		0x0004
 
 #endif /* __ASM_THREAD_INFO_H */
