@@ -399,6 +399,8 @@ void arm64_notify_segfault(unsigned long addr)
 
 void do_undefinstr(struct pt_regs *regs)
 {
+	oob_trap_notify(ARM64_TRAP_UNDI, regs);
+
 	/* check for AArch32 breakpoint instructions */
 	if (!aarch32_break_handler(regs))
 		return;
@@ -812,6 +814,8 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 void bad_el0_sync(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	void __user *pc = (void __user *)instruction_pointer(regs);
+
+	oob_trap_notify(ARM64_TRAP_UNDSE, regs);
 
 	current->thread.fault_address = 0;
 	current->thread.fault_code = esr;
