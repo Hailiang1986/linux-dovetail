@@ -399,15 +399,19 @@ void arm64_notify_segfault(unsigned long addr)
 
 void do_undefinstr(struct pt_regs *regs)
 {
+	oob_trap_notify(ARM64_TRAP_UNDI, regs);
+
 	/* check for AArch32 breakpoint instructions */
 	if (!aarch32_break_handler(regs))
-		return;
+		goto out;
 
 	if (call_undef_hook(regs) == 0)
-		return;
+		goto out;
 
 	BUG_ON(!user_mode(regs));
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+out:
+	oob_trap_finalize(ARM64_TRAP_UNDI, regs);
 }
 NOKPROBE_SYMBOL(do_undefinstr);
 
@@ -813,11 +817,15 @@ void bad_el0_sync(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	void __user *pc = (void __user *)instruction_pointer(regs);
 
+	oob_trap_notify(ARM64_TRAP_UNDSE, regs);
+
 	current->thread.fault_address = 0;
 	current->thread.fault_code = esr;
 
 	arm64_force_sig_fault(SIGILL, ILL_ILLOPC, pc,
 			      "Bad EL0 synchronous exception");
+
+	oob_trap_finalize(ARM64_TRAP_UNDSE, regs);
 }
 
 #ifdef CONFIG_VMAP_STACK

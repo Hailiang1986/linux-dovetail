@@ -40,6 +40,7 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/traps.h>
+#include <asm/dovetail.h>
 
 struct fault_info {
 	int	(*fn)(unsigned long addr, unsigned int esr,
@@ -76,10 +77,17 @@ static inline const struct fault_info *esr_to_debug_fault_info(unsigned int esr)
  */
 
 static inline
-unsigned long fault_entry(struct pt_regs *regs)
+unsigned long fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
+
+	/*
+	 * Do not propagate SEA traps to the out-of-band handler in
+	 * NMI mode, there is nothing it could do about it.
+	 */
+	if (likely(exception != ARM64_TRAP_SEA || interrupts_enabled(regs)))
+		oob_trap_notify(exception, regs);
 
 	flags = hard_local_irq_save();
 
@@ -91,12 +99,15 @@ unsigned long fault_entry(struct pt_regs *regs)
 	return irqs_merge_flags(flags, nosync);
 }
 
-static inline void fault_exit(unsigned long combo)
+static inline void fault_exit(int exception, struct pt_regs *regs,
+			unsigned long combo)
 {
 	unsigned long flags;
 	int nosync;
 
 	WARN_ON_ONCE(irq_pipeline_debug() && hard_irqs_disabled());
+
+	oob_trap_finalize(exception, regs);
 
 	/*
 	 * '!nosync' here means that we had to turn on the stall bit
@@ -122,13 +133,9 @@ static inline void fault_exit(unsigned long combo)
 
 #else	/* !CONFIG_IRQ_PIPELINE */
 
-static inline
-unsigned long fault_entry(struct pt_regs *regs)
-{
-	return 0;
-}
-
-static inline void fault_exit(unsigned long x) { }
+#define fault_entry(__exception, __regs)  ({ 0; })
+#define fault_exit(__exception, __regs, __flags)  \
+	do { (void)(__flags); } while (0)
 
 #endif	/* !CONFIG_IRQ_PIPELINE */
 
@@ -460,11 +467,11 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 		const struct fault_info *inf = esr_to_fault_info(esr);
 		unsigned long irqflags;
 
-		irqflags = fault_entry(regs);
+		irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
 		set_thread_esr(addr, esr);
 		arm64_force_sig_fault(inf->sig, inf->code, (void __user *)addr,
 				      inf->name);
-		fault_exit(irqflags);
+		fault_exit(ARM64_TRAP_ACCESS, regs, irqflags);
 	} else {
 		/*
 		 * irq_pipeline: kernel faults are either quickly
@@ -530,10 +537,10 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	unsigned int mm_flags = FAULT_FLAG_DEFAULT;
 	unsigned long irqflags;
 
-	irqflags = fault_entry(regs);
-
 	if (kprobe_page_fault(regs, esr))
-		goto out;
+		return 0;
+
+	irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
 
 	/*
 	 * If we're in an interrupt or have no user context, we must not take
@@ -682,7 +689,7 @@ retry:
 				      inf->name);
 	}
 out:
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ACCESS, regs, irqflags);
 
 	return 0;
 
@@ -722,7 +729,7 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	unsigned long irqflags;
 	void __user *siaddr;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_SEA, regs);
 
 	inf = esr_to_fault_info(esr);
 
@@ -738,7 +745,7 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 		siaddr  = (void __user *)addr;
 	arm64_notify_die(inf->name, regs, inf->sig, inf->code, siaddr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_SEA, regs, irqflags);
 
 	return 0;
 }
@@ -818,7 +825,7 @@ void do_mem_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	if (!inf->fn(addr, esr, regs))
 		return;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_ABRT, regs);
 
 	if (!user_mode(regs)) {
 		pr_alert("Unhandled fault at 0x%016lx\n", addr);
@@ -829,7 +836,7 @@ void do_mem_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	arm64_notify_die(inf->name, regs,
 			 inf->sig, inf->code, (void __user *)addr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ABRT, regs, irqflags);
 }
 NOKPROBE_SYMBOL(do_mem_abort);
 
@@ -848,12 +855,12 @@ void do_sp_pc_abort(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
 	unsigned long irqflags;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_ABRT, regs);
 
 	arm64_notify_die("SP/PC alignment exception", regs,
 			 SIGBUS, BUS_ADRALN, (void __user *)addr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ABRT, regs, irqflags);
 }
 NOKPROBE_SYMBOL(do_sp_pc_abort);
 
@@ -974,20 +981,20 @@ void do_debug_exception(unsigned long addr_if_watchpoint, unsigned int esr,
 	if (cortex_a76_erratum_1463225_debug_handler(regs))
 		return;
 
-	debug_exception_enter(regs);
-
 	if (user_mode(regs) && !is_ttbr0_addr(pc))
 		arm64_apply_bp_hardening();
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_DEBUG, regs);
+
+	debug_exception_enter(regs);
 
 	if (inf->fn(addr_if_watchpoint, esr, regs)) {
 		arm64_notify_die(inf->name, regs,
 				 inf->sig, inf->code, (void __user *)pc, esr);
 	}
 
-	fault_exit(irqflags);
-
 	debug_exception_exit(regs);
+
+	fault_exit(ARM64_TRAP_DEBUG, regs, irqflags);
 }
 NOKPROBE_SYMBOL(do_debug_exception);
