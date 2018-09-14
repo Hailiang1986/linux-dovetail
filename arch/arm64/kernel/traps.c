@@ -468,14 +468,18 @@ void do_undefinstr(struct pt_regs *regs)
 		return;
 
 	BUG_ON(!user_mode(regs));
+	oob_trap_notify(ARM64_TRAP_UNDI, regs);
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+	oob_trap_unwind(ARM64_TRAP_UNDI, regs);
 }
 NOKPROBE_SYMBOL(do_undefinstr);
 
 void do_bti(struct pt_regs *regs)
 {
 	BUG_ON(!user_mode(regs));
+	oob_trap_notify(ARM64_TRAP_BTI, regs);
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+	oob_trap_unwind(ARM64_TRAP_BTI, regs);
 }
 NOKPROBE_SYMBOL(do_bti);
 
@@ -532,9 +536,11 @@ static void user_cache_maint_handler(unsigned int esr, struct pt_regs *regs)
 		return;
 	}
 
-	if (ret)
+	if (ret) {
+		oob_trap_notify(ARM64_TRAP_ACCESS, regs);
 		arm64_notify_segfault(address);
-	else
+		oob_trap_unwind(ARM64_TRAP_ACCESS, regs);
+	} else
 		arm64_skip_faulting_instruction(regs, AARCH64_INSN_SIZE);
 }
 
@@ -580,8 +586,11 @@ static void mrs_handler(unsigned int esr, struct pt_regs *regs)
 	rt = ESR_ELx_SYS64_ISS_RT(esr);
 	sysreg = esr_sys64_to_sysreg(esr);
 
-	if (do_emulate_mrs(regs, sysreg, rt) != 0)
+	if (do_emulate_mrs(regs, sysreg, rt) != 0) {
+		oob_trap_notify(ARM64_TRAP_ACCESS, regs);
 		force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+		oob_trap_unwind(ARM64_TRAP_ACCESS, regs);
+	}
 }
 
 static void wfi_handler(unsigned int esr, struct pt_regs *regs)
@@ -807,6 +816,11 @@ const char *esr_get_class_string(u32 esr)
  */
 asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 {
+	/*
+	 * Dovetail: Same as __do_kernel_fault(), don't bother
+	 * restoring the in-band stage, this trap is fatal and we are
+	 * already walking on thin ice.
+	 */
 	console_verbose();
 
 	pr_crit("Bad mode in %s handler detected on CPU%d, code 0x%08x -- %s\n",
@@ -826,11 +840,13 @@ void bad_el0_sync(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	void __user *pc = (void __user *)instruction_pointer(regs);
 
+	oob_trap_notify(ARM64_TRAP_ACCESS, regs);
 	current->thread.fault_address = 0;
 	current->thread.fault_code = esr;
 
 	arm64_force_sig_fault(SIGILL, ILL_ILLOPC, pc,
 			      "Bad EL0 synchronous exception");
+	oob_trap_unwind(ARM64_TRAP_ACCESS, regs);
 }
 
 #ifdef CONFIG_VMAP_STACK
