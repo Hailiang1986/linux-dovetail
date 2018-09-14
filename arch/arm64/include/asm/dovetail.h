@@ -16,4 +16,11 @@
 #define ARM64_TRAP_FPE		6	/* FPSIMD exception */
 #define ARM64_TRAP_SVE		7	/* SVE access trap */
 
+
+static inline void arch_dovetail_switch_prepare(bool leave_inband)
+{ }
+
+static inline void arch_dovetail_switch_finish(bool leave_inband)
+{ }
+
 #endif /* _ASM_ARM64_DOVETAIL_H */
