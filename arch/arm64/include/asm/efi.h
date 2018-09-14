@@ -129,6 +129,10 @@ static inline unsigned long efi_get_kimg_min_align(void)
 
 static inline void efi_set_pgd(struct mm_struct *mm)
 {
+	unsigned long flags;
+
+	protect_inband_mm(flags);
+
 	__switch_mm(mm);
 
 	if (system_uses_ttbr0_pan()) {
@@ -153,6 +157,8 @@ static inline void efi_set_pgd(struct mm_struct *mm)
 			update_saved_ttbr0(current, current->active_mm);
 		}
 	}
+
+	unprotect_inband_mm(flags);
 }
 
 void efi_virtmap_load(void);
