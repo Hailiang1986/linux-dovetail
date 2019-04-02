@@ -9,6 +9,7 @@
 #ifdef CONFIG_DOVETAIL
 
 #include <linux/sched.h>
+#include <linux/mm.h>
 #include <linux/thread_info.h>
 #include <asm/dovetail.h>
 
@@ -192,6 +193,12 @@ static inline
 struct oob_thread_state *dovetail_task_state(struct task_struct *p)
 {
 	return &task_thread_info(p)->oob_state;
+}
+
+static inline
+struct oob_mm_state *dovetail_mm_state(void)
+{
+	return &current->mm->oob_state;
 }
 
 void dovetail_call_mayday(struct thread_info *ti,
