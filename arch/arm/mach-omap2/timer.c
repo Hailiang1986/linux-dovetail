@@ -87,7 +87,7 @@ static irqreturn_t omap2_gp_timer_interrupt(int irq, void *dev_id)
 
 	__omap_dm_timer_write_status(&clkev, OMAP_TIMER_INT_OVERFLOW);
 
-	evt->event_handler(evt);
+	clockevents_handle_event(evt);
 	return IRQ_HANDLED;
 }
 
@@ -148,7 +148,8 @@ static void omap_clkevt_unidle(struct clock_event_device *unused)
 
 static struct clock_event_device clockevent_gpt = {
 	.features		= CLOCK_EVT_FEAT_PERIODIC |
-				  CLOCK_EVT_FEAT_ONESHOT,
+				  CLOCK_EVT_FEAT_ONESHOT |
+				  CLOCK_EVT_FEAT_PIPELINE,
 	.rating			= 300,
 	.set_next_event		= omap2_gp_timer_set_next_event,
 	.set_state_shutdown	= omap2_gp_timer_shutdown,
