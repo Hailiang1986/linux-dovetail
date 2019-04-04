@@ -413,17 +413,14 @@ static bool use_gptimer_clksrc __initdata;
 /*
  * clocksource
  */
-static u64 clocksource_read_cycles(struct clocksource *cs)
-{
-	return (u64)__omap_dm_timer_read_counter(&clksrc,
-						     OMAP_TIMER_NONPOSTED);
-}
 
-static struct clocksource clocksource_gpt = {
-	.rating		= 300,
-	.read		= clocksource_read_cycles,
-	.mask		= CLOCKSOURCE_MASK(32),
-	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
+static struct clocksource_user_mmio clocksource_gpt = {
+	.mmio.clksrc = {
+		.rating		= 300,
+		.read		= clocksource_mmio_readl_up,
+		.mask		= CLOCKSOURCE_MASK(32),
+		.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
+	},
 };
 
 static u64 notrace dmtimer_read_sched_clock(void)
@@ -505,21 +502,22 @@ static void __init omap2_gptimer_clocksource_init(int gptimer_id,
 						  const char *fck_source,
 						  const char *property)
 {
+	struct clocksource_mmio_regs mmr;
 	int res;
 
 	clksrc.id = gptimer_id;
 	clksrc.errata = omap_dm_timer_get_errata();
 
 	res = omap_dm_timer_init_one(&clksrc, fck_source, property,
-				     &clocksource_gpt.name,
+				     &clocksource_gpt.mmio.clksrc.name,
 				     OMAP_TIMER_NONPOSTED);
 
 	if (soc_is_am43xx()) {
-		clocksource_gpt.suspend = omap2_gptimer_clksrc_suspend;
-		clocksource_gpt.resume = omap2_gptimer_clksrc_resume;
+		clocksource_gpt.mmio.clksrc.suspend = omap2_gptimer_clksrc_suspend;
+		clocksource_gpt.mmio.clksrc.resume = omap2_gptimer_clksrc_resume;
 
 		clocksource_gpt_hwmod =
-			omap_hwmod_lookup(clocksource_gpt.name);
+			omap_hwmod_lookup(clocksource_gpt.mmio.clksrc.name);
 	}
 
 	BUG_ON(res);
@@ -529,12 +527,18 @@ static void __init omap2_gptimer_clocksource_init(int gptimer_id,
 				   OMAP_TIMER_NONPOSTED);
 	sched_clock_register(dmtimer_read_sched_clock, 32, clksrc.rate);
 
-	if (clocksource_register_hz(&clocksource_gpt, clksrc.rate))
+	mmr.reg_lower = clksrc.func_base + (OMAP_TIMER_COUNTER_REG & 0xff);
+	mmr.bits_lower = 32;
+	mmr.reg_upper = 0;
+	mmr.bits_upper = 0;
+	mmr.revmap = NULL;
+
+	if (clocksource_user_mmio_init(&clocksource_gpt, &mmr, clksrc.rate))
 		pr_err("Could not register clocksource %s\n",
-			clocksource_gpt.name);
+			clocksource_gpt.mmio.clksrc.name);
 	else
 		pr_info("OMAP clocksource: %s at %lu Hz\n",
-			clocksource_gpt.name, clksrc.rate);
+			clocksource_gpt.mmio.clksrc.name, clksrc.rate);
 }
 
 static void __init __omap_sync32k_timer_init(int clkev_nr, const char *clkev_src,
