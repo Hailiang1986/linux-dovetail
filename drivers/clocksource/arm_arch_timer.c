@@ -972,6 +972,10 @@ struct arch_timer_kvm_info *arch_timer_get_kvm_info(void)
 	return &arch_timer_kvm_info;
 }
 
+void __weak arch_clocksource_arch_timer_init(struct clocksource *cs)
+{
+}
+
 static void __init arch_counter_register(unsigned type)
 {
 	u64 start_count;
@@ -995,9 +999,7 @@ static void __init arch_counter_register(unsigned type)
 
 		arch_timer_read_counter = rd;
 		clocksource_counter.archdata.clock_mode = vdso_default;
-#ifdef arch_clocksource_arch_timer_init
 		arch_clocksource_arch_timer_init(&clocksource_counter);
-#endif
 	} else {
 		arch_timer_read_counter = arch_counter_get_cntvct_mem;
 	}
