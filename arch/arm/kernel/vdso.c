@@ -272,5 +272,8 @@ void arch_clocksource_arch_timer_init(struct clocksource *cs)
 {
 	struct arch_clocksource_data *d = &cs->archdata;
 
-	d->clock_type = ARM_CLOCK_ARCH_TIMER;
+	if (cs->archdata.clock_mode == VDSO_CLOCKMODE_NONE)
+		d->clock_type = ARM_CLOCK_NONE;
+	else
+		d->clock_type = ARM_CLOCK_ARCH_TIMER;
 }
