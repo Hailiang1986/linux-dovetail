@@ -928,7 +928,7 @@ static bool inject_irq(struct irq_desc *desc)
 	return false;
 }
 
-static void synchronize_pipeline_on_irq(void)
+static inline void synchronize_pipeline_on_irq(void)
 {
 	/*
 	 * Optimize if we preempted the high priority oob stage: we
