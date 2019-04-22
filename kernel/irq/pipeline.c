@@ -1231,9 +1231,6 @@ int enable_oob_stage(const char *name)
 	struct irq_stage_data *p;
 	int cpu, ret;
 
-	if (WARN_ON(!running_inband()))
-		return -EINVAL;
-
 	if (oob_stage_present())
 		return -EBUSY;
 
