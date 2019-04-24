@@ -50,6 +50,11 @@ extern asmlinkage void deferred_error_interrupt(void);
 extern asmlinkage void call_function_interrupt(void);
 extern asmlinkage void call_function_single_interrupt(void);
 
+#ifdef CONFIG_IRQ_PIPELINE
+extern asmlinkage void reschedule_oob_interrupt(void);
+extern asmlinkage void timer_oob_interrupt(void);
+#endif
+
 #ifdef	CONFIG_X86_LOCAL_APIC
 struct irq_data;
 struct pci_dev;
