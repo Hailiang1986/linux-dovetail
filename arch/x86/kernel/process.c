@@ -580,9 +580,9 @@ void speculation_ctrl_update(unsigned long tif)
 	unsigned long flags;
 
 	/* Forced update. Make sure all relevant TIF flags are different */
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	__speculation_ctrl_update(~tif, tif);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 /* Called from seccomp/prctl update */
@@ -704,7 +704,7 @@ bool xen_set_default_idle(void)
 
 void stop_this_cpu(void *dummy)
 {
-	local_irq_disable();
+	hard_local_irq_disable();
 	/*
 	 * Remove this CPU:
 	 */
@@ -801,9 +801,9 @@ static __cpuidle void mwait_idle(void)
 		if (!need_resched())
 			__sti_mwait(0, 0);
 		else
-			local_irq_enable();
+			hard_local_irq_enable();
 	} else {
-		local_irq_enable();
+		hard_local_irq_enable();
 	}
 	__current_clr_polling();
 }
