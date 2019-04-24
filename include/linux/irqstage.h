@@ -186,16 +186,6 @@ static inline struct irq_stage *__current_stage(void)
 
 #define current_stage	__current_stage()
 
-static inline bool running_inband(void)
-{
-	return stage_level() == 0;
-}
-
-static inline bool running_oob(void)
-{
-	return !running_inband();
-}
-
 static inline bool oob_stage_present(void)
 {
 	return oob_stage.index != 0;
@@ -373,16 +363,6 @@ int arch_enable_oob_stage(void);
 void disable_oob_stage(void);
 
 #else /* !CONFIG_IRQ_PIPELINE */
-
-static inline bool running_inband(void)
-{
-	return true;
-}
-
-static inline bool running_oob(void)
-{
-	return false;
-}
 
 static inline bool oob_stage_present(void)
 {
