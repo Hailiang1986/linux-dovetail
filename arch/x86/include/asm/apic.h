@@ -445,7 +445,7 @@ static inline void apic_set_eoi_write(void (*eoi_write)(u32 reg, u32 v)) {}
 
 extern void apic_ack_irq(struct irq_data *data);
 
-static inline void ack_APIC_irq(void)
+static inline void __ack_APIC_irq(void)
 {
 	/*
 	 * ack_APIC_irq() actually gets compiled as a single instruction
@@ -454,6 +454,11 @@ static inline void ack_APIC_irq(void)
 	apic_eoi();
 }
 
+static inline void ack_APIC_irq(void)
+{
+	if (!irqs_pipelined())
+		__ack_APIC_irq();
+}
 
 static inline bool lapic_vector_set_in_irr(unsigned int vector)
 {
@@ -519,12 +524,12 @@ static inline bool apic_id_is_primary_thread(unsigned int id) { return false; }
 static inline void apic_smt_update(void) { }
 #endif
 
-extern void irq_enter(void);
-extern void irq_exit(void);
+extern void irq_enter_if_inband(void);
+extern void irq_exit_if_inband(void);
 
 static inline void entering_irq(void)
 {
-	irq_enter();
+	irq_enter_if_inband();
 	kvm_set_cpu_l1tf_flush_l1d();
 }
 
@@ -536,20 +541,20 @@ static inline void entering_ack_irq(void)
 
 static inline void ipi_entering_ack_irq(void)
 {
-	irq_enter();
+	irq_enter_if_inband();
 	ack_APIC_irq();
 	kvm_set_cpu_l1tf_flush_l1d();
 }
 
 static inline void exiting_irq(void)
 {
-	irq_exit();
+	irq_exit_if_inband();
 }
 
 static inline void exiting_ack_irq(void)
 {
 	ack_APIC_irq();
-	irq_exit();
+	irq_exit_if_inband();
 }
 
 extern void ioapic_zap_locks(void);
