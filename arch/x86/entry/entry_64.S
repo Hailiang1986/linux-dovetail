@@ -57,7 +57,7 @@ END(native_usergs_sysret64)
 #ifdef CONFIG_TRACE_IRQFLAGS
 	btl	$9, \flags		/* interrupts off? */
 	jnc	1f
-	TRACE_IRQS_ON
+	TRACE_IRQS_ON_PIPELINED
 1:
 #endif
 .endm
@@ -332,6 +332,7 @@ END(__switch_to_asm)
  */
 ENTRY(ret_from_fork)
 	UNWIND_HINT_EMPTY
+	ENABLE_INTERRUPTS_IF_PIPELINED
 	movq	%rax, %rdi
 	call	schedule_tail			/* rdi: 'prev' task parameter */
 
@@ -405,6 +406,9 @@ END(spurious_entries_start)
  * Requires kernel GSBASE.
  *
  * The invariant is that, if irq_count != -1, then the IRQ stack is in use.
+ *
+ * irq_pipeline: caller must ensure that hard irqs are off upon
+ * ENTER/LEAVE_IRQ_STACK so that irq_count is always consistent.
  */
 .macro ENTER_IRQ_STACK regs=1 old_rsp save_ret=0
 	DEBUG_ENTRY_ASSERT_IRQS_OFF
@@ -575,8 +579,13 @@ ENTRY(interrupt_entry)
 
 1:
 	ENTER_IRQ_STACK old_rsp=%rdi save_ret=1
-	/* We entered an interrupt context - irqs are off: */
+	/* We entered an interrupt context - irqs are off unless
+	   pipelining is enabled, in which case we defer tracing until
+	   __ipipe_do_sync_stage() where the virtual IRQ state is
+	   updated for the root stage. */
+#ifndef CONFIG_IRQ_PIPELINE
 	TRACE_IRQS_OFF
+#endif
 
 	ret
 END(interrupt_entry)
@@ -604,7 +613,17 @@ common_interrupt:
 	addq	$-0x80, (%rsp)			/* Adjust vector to [-256, -1] range */
 	call	interrupt_entry
 	UNWIND_HINT_REGS indirect=1
+#ifdef CONFIG_IRQ_PIPELINE
+	call	handle_arch_irq_pipelined
+	testl	%eax, %eax
+	jnz	ret_from_intr
+	LEAVE_IRQ_STACK
+	testb	$3, CS(%rsp)
+	jz	retint_kernel_early
+	jmp	retint_user_early
+#else	
 	call	do_IRQ	/* rdi points to pt_regs */
+#endif	
 	/* 0(%rsp): old RSP */
 ret_from_intr:
 	DISABLE_INTERRUPTS(CLBR_ANY)
@@ -619,6 +638,7 @@ ret_from_intr:
 GLOBAL(retint_user)
 	mov	%rsp,%rdi
 	call	prepare_exit_to_usermode
+retint_user_early:
 	TRACE_IRQS_IRETQ
 
 GLOBAL(swapgs_restore_regs_and_return_to_usermode)
@@ -677,7 +697,8 @@ retint_kernel:
 #endif
 	/*
 	 * The iretq could re-enable interrupts:
-	 */
+	*/
+retint_kernel_early:
 	TRACE_IRQS_IRETQ
 
 GLOBAL(restore_regs_and_return_to_kernel)
@@ -795,7 +816,29 @@ _ASM_NOKPROBE(common_interrupt)
 
 /*
  * APIC interrupts.
- */
+*/
+#ifdef CONFIG_IRQ_PIPELINE
+.macro apicinterrupt2 num sym
+ENTRY(\sym)
+	UNWIND_HINT_IRET_REGS
+	pushq	$~(\num)
+.Lcommon_\sym:
+	call	interrupt_entry
+	UNWIND_HINT_REGS indirect=1
+	call	handle_arch_irq_pipelined /* rdi points to pt_regs */
+	testl	%eax, %eax
+	jnz	ret_from_intr
+	LEAVE_IRQ_STACK
+	testb	$3, CS(%rsp)
+	jz	retint_kernel_early
+	jmp	retint_user_early
+END(\sym)
+.endm
+.macro apicinterrupt3 num sym do_sym
+apicinterrupt2 \num \sym
+_ASM_NOKPROBE(\sym)
+.endm
+#else	
 .macro apicinterrupt3 num sym do_sym
 ENTRY(\sym)
 	UNWIND_HINT_IRET_REGS
@@ -808,7 +851,8 @@ ENTRY(\sym)
 END(\sym)
 _ASM_NOKPROBE(\sym)
 .endm
-
+#endif
+	
 /* Make sure APIC interrupt handlers end up in the irqentry section: */
 #define PUSH_SECTION_IRQENTRY	.pushsection .irqentry.text, "ax"
 #define POP_SECTION_IRQENTRY	.popsection
@@ -853,8 +897,15 @@ apicinterrupt THERMAL_APIC_VECTOR		thermal_interrupt		smp_thermal_interrupt
 apicinterrupt CALL_FUNCTION_SINGLE_VECTOR	call_function_single_interrupt	smp_call_function_single_interrupt
 apicinterrupt CALL_FUNCTION_VECTOR		call_function_interrupt		smp_call_function_interrupt
 apicinterrupt RESCHEDULE_VECTOR			reschedule_interrupt		smp_reschedule_interrupt
+#ifdef CONFIG_IRQ_PIPELINE
+apicinterrupt2 RESCHEDULE_OOB_VECTOR		reschedule_oob_interrupt
+#endif
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+apicinterrupt2 TIMER_OOB_VECTOR			timer_oob_interrupt
+#endif
+	
 apicinterrupt ERROR_APIC_VECTOR			error_interrupt			smp_error_interrupt
 apicinterrupt SPURIOUS_APIC_VECTOR		spurious_interrupt		smp_spurious_interrupt
 
@@ -1079,9 +1130,13 @@ EXPORT_SYMBOL(native_load_gs_index)
 ENTRY(do_softirq_own_stack)
 	pushq	%rbp
 	mov	%rsp, %rbp
+	DISABLE_INTERRUPTS_IF_PIPELINED
 	ENTER_IRQ_STACK regs=0 old_rsp=%r11
+	ENABLE_INTERRUPTS_IF_PIPELINED
 	call	__do_softirq
+	DISABLE_INTERRUPTS_IF_PIPELINED
 	LEAVE_IRQ_STACK regs=0
+	ENABLE_INTERRUPTS_IF_PIPELINED
 	leaveq
 	ret
 ENDPROC(do_softirq_own_stack)
