@@ -339,9 +339,32 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 #endif
 
 #ifdef CONFIG_IRQ_PIPELINE
+
+static inline bool running_inband(void)
+{
+	return stage_level() == 0;
+}
+
+static inline bool running_oob(void)
+{
+	return !running_inband();
+}
+
 unsigned long hard_preempt_disable(void);
 void hard_preempt_enable(unsigned long flags);
+
 #else
+
+static inline bool running_inband(void)
+{
+	return true;
+}
+
+static inline bool running_oob(void)
+{
+	return false;
+}
+
 #define hard_preempt_disable()		\
 ({					\
 	preempt_disable();		\
