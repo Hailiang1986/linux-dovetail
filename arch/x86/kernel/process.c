@@ -116,8 +116,17 @@ void exit_thread(struct task_struct *tsk)
 	if (bp) {
 		struct tss_struct *tss = &per_cpu(cpu_tss_rw, get_cpu());
 
-		t->io_bitmap_ptr = NULL;
+		/*
+		 * irq_pipeline: the oob stage may preempt. Make sure
+		 * TIF_IO_BITMAP always denotes a valid I/O bitmap
+		 * when set, by clearing it _before_ the I/O bitmap
+		 * pointer. No cache coherence issue ahead as CPU
+		 * migration is currently locked for the in-band
+		 * stage, and we can't migrate to another CPU over the
+		 * oob stage.
+		 */
 		clear_thread_flag(TIF_IO_BITMAP);
+		t->io_bitmap_ptr = NULL;
 		/*
 		 * Careful, clear this in the TSS too:
 		 */
@@ -474,9 +483,9 @@ void speculation_ctrl_update(unsigned long tif)
 	unsigned long flags;
 
 	/* Forced update. Make sure all relevant TIF flags are different */
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	__speculation_ctrl_update(~tif, tif);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 /* Called from seccomp/prctl update */
@@ -570,6 +579,8 @@ void __cpuidle default_idle(void)
 {
 	trace_cpu_idle_rcuidle(1, smp_processor_id());
 	safe_halt();
+	if (irqs_pipelined())
+		local_irq_enable();
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, smp_processor_id());
 }
 #if defined(CONFIG_APM_MODULE) || defined(CONFIG_HALTPOLL_CPUIDLE_MODULE)
@@ -589,7 +600,7 @@ bool xen_set_default_idle(void)
 
 void stop_this_cpu(void *dummy)
 {
-	local_irq_disable();
+	hard_local_irq_disable();
 	/*
 	 * Remove this CPU:
 	 */
@@ -684,13 +695,15 @@ static __cpuidle void mwait_idle(void)
 		}
 
 		__monitor((void *)&current_thread_info()->flags, 0, 0);
-		if (!need_resched())
+		if (!need_resched()) {
 			__sti_mwait(0, 0);
-		else
-			local_irq_enable();
+			if (irqs_pipelined())
+				local_irq_enable();
+		} else
+			local_irq_enable_full();
 		trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, smp_processor_id());
 	} else {
-		local_irq_enable();
+		local_irq_enable_full();
 	}
 	__current_clr_polling();
 }
