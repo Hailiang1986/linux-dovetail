@@ -35,6 +35,11 @@ extern inline unsigned long native_save_fl(void)
 	return flags;
 }
 
+static inline unsigned long native_save_flags(void)
+{
+	return native_save_fl();
+}
+
 extern inline void native_restore_fl(unsigned long flags);
 extern inline void native_restore_fl(unsigned long flags)
 {
@@ -52,6 +57,33 @@ static inline void native_irq_disable(void)
 static inline void native_irq_enable(void)
 {
 	asm volatile("sti": : :"memory");
+}
+
+static inline unsigned long native_irq_save(void)
+{
+	unsigned long flags;
+
+	flags = native_save_flags();
+
+	native_irq_disable();
+
+	return flags;
+}
+
+static inline void native_irq_restore(unsigned long flags)
+{
+	return native_restore_fl(flags);
+}
+
+static inline int native_irqs_disabled_flags(unsigned long flags)
+{
+	return !(flags & X86_EFLAGS_IF);
+}
+
+static inline bool native_irqs_disabled(void)
+{
+	unsigned long flags = native_save_flags();
+	return native_irqs_disabled_flags(flags);
 }
 
 static inline __cpuidle void native_safe_halt(void)
@@ -73,26 +105,7 @@ static inline __cpuidle void native_halt(void)
 #else
 #ifndef __ASSEMBLY__
 #include <linux/types.h>
-
-static inline notrace unsigned long arch_local_save_flags(void)
-{
-	return native_save_fl();
-}
-
-static inline notrace void arch_local_irq_restore(unsigned long flags)
-{
-	native_restore_fl(flags);
-}
-
-static inline notrace void arch_local_irq_disable(void)
-{
-	native_irq_disable();
-}
-
-static inline notrace void arch_local_irq_enable(void)
-{
-	native_irq_enable();
-}
+#include <asm/irq_pipeline.h>
 
 /*
  * Used in the idle loop; sti takes one instruction cycle
@@ -112,15 +125,6 @@ static inline __cpuidle void halt(void)
 	native_halt();
 }
 
-/*
- * For spinlocks, etc:
- */
-static inline notrace unsigned long arch_local_irq_save(void)
-{
-	unsigned long flags = arch_local_save_flags();
-	arch_local_irq_disable();
-	return flags;
-}
 #else
 
 #define ENABLE_INTERRUPTS(x)	sti
@@ -161,7 +165,7 @@ static inline notrace unsigned long arch_local_irq_save(void)
 #ifndef __ASSEMBLY__
 static inline int arch_irqs_disabled_flags(unsigned long flags)
 {
-	return !(flags & X86_EFLAGS_IF);
+	return native_irqs_disabled_flags(flags);
 }
 
 static inline int arch_irqs_disabled(void)
@@ -176,8 +180,14 @@ static inline int arch_irqs_disabled(void)
 #ifdef CONFIG_TRACE_IRQFLAGS
 #  define TRACE_IRQS_ON		call trace_hardirqs_on_thunk;
 #  define TRACE_IRQS_OFF	call trace_hardirqs_off_thunk;
+#ifdef CONFIG_IRQ_PIPELINE
+#  define TRACE_IRQS_ON_PIPELINED	call trace_hardirqs_on_pipelined_thunk;
+#else
+#  define TRACE_IRQS_ON_PIPELINED	TRACE_IRQS_ON
+#endif
 #else
 #  define TRACE_IRQS_ON
+#  define TRACE_IRQS_ON_PIPELINED
 #  define TRACE_IRQS_OFF
 #endif
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
@@ -203,6 +213,13 @@ static inline int arch_irqs_disabled(void)
 #else
 #  define LOCKDEP_SYS_EXIT
 #  define LOCKDEP_SYS_EXIT_IRQ
+#endif
+#ifdef CONFIG_IRQ_PIPELINE
+#define ENABLE_INTERRUPTS_IF_PIPELINED	ENABLE_INTERRUPTS(CLBR_ANY)
+#define DISABLE_INTERRUPTS_IF_PIPELINED	DISABLE_INTERRUPTS(CLBR_ANY)
+#else
+#define ENABLE_INTERRUPTS_IF_PIPELINED
+#define DISABLE_INTERRUPTS_IF_PIPELINED
 #endif
 #endif /* __ASSEMBLY__ */
 
