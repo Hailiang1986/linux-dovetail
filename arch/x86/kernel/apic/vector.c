@@ -39,7 +39,7 @@ struct apic_chip_data {
 
 struct irq_domain *x86_vector_domain;
 EXPORT_SYMBOL_GPL(x86_vector_domain);
-static DEFINE_RAW_SPINLOCK(vector_lock);
+static DEFINE_HARD_SPINLOCK(vector_lock);
 static cpumask_var_t vector_searchmask;
 static struct irq_chip lapic_controller;
 static struct irq_matrix *vector_matrix;
@@ -761,9 +761,11 @@ void lapic_online(void)
 
 void lapic_offline(void)
 {
-	lock_vector_lock();
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&vector_lock, flags);
 	irq_matrix_offline(vector_matrix);
-	unlock_vector_lock();
+	raw_spin_unlock_irqrestore(&vector_lock, flags);
 }
 
 static int apic_set_affinity(struct irq_data *irqd,
@@ -771,6 +773,8 @@ static int apic_set_affinity(struct irq_data *irqd,
 {
 	struct apic_chip_data *apicd = apic_chip_data(irqd);
 	int err;
+
+	WARN_ON_ONCE(irqs_pipelined() && !hard_irqs_disabled());
 
 	/*
 	 * Core code can call here for inactive interrupts. For inactive
@@ -813,7 +817,7 @@ static int apic_retrigger_irq(struct irq_data *irqd)
 void apic_ack_irq(struct irq_data *irqd)
 {
 	irq_move_irq(irqd);
-	ack_APIC_irq();
+	__ack_APIC_irq();
 }
 
 void apic_ack_edge(struct irq_data *irqd)
@@ -860,10 +864,11 @@ asmlinkage __visible void __irq_entry smp_irq_move_cleanup_interrupt(void)
 	struct hlist_head *clhead = this_cpu_ptr(&cleanup_list);
 	struct apic_chip_data *apicd;
 	struct hlist_node *tmp;
+	unsigned long flags;
 
 	entering_ack_irq();
 	/* Prevent vectors vanishing under us */
-	raw_spin_lock(&vector_lock);
+	raw_spin_lock_irqsave(&vector_lock, flags);
 
 	hlist_for_each_entry_safe(apicd, tmp, clhead, clist) {
 		unsigned int irr, vector = apicd->prev_vector;
@@ -885,15 +890,16 @@ asmlinkage __visible void __irq_entry smp_irq_move_cleanup_interrupt(void)
 		free_moved_vector(apicd);
 	}
 
-	raw_spin_unlock(&vector_lock);
+	raw_spin_unlock_irqrestore(&vector_lock, flags);
 	exiting_irq();
 }
 
 static void __send_cleanup_vector(struct apic_chip_data *apicd)
 {
+	unsigned long flags;
 	unsigned int cpu;
 
-	raw_spin_lock(&vector_lock);
+	raw_spin_lock_irqsave(&vector_lock, flags);
 	apicd->move_in_progress = 0;
 	cpu = apicd->prev_cpu;
 	if (cpu_online(cpu)) {
@@ -902,7 +908,7 @@ static void __send_cleanup_vector(struct apic_chip_data *apicd)
 	} else {
 		apicd->prev_vector = 0;
 	}
-	raw_spin_unlock(&vector_lock);
+	raw_spin_unlock_irqrestore(&vector_lock, flags);
 }
 
 void send_cleanup_vector(struct irq_cfg *cfg)
@@ -939,6 +945,8 @@ void irq_force_complete_move(struct irq_desc *desc)
 	struct apic_chip_data *apicd;
 	struct irq_data *irqd;
 	unsigned int vector;
+
+	WARN_ON_ONCE(irqs_pipelined() && !hard_irqs_disabled());
 
 	/*
 	 * The function is called for all descriptors regardless of which
@@ -1030,9 +1038,10 @@ unlock:
 int lapic_can_unplug_cpu(void)
 {
 	unsigned int rsvd, avl, tomove, cpu = smp_processor_id();
+	unsigned long flags;
 	int ret = 0;
 
-	raw_spin_lock(&vector_lock);
+	raw_spin_lock_irqsave(&vector_lock, flags);
 	tomove = irq_matrix_allocated(vector_matrix);
 	avl = irq_matrix_available(vector_matrix, true);
 	if (avl < tomove) {
@@ -1047,7 +1056,7 @@ int lapic_can_unplug_cpu(void)
 			rsvd, avl);
 	}
 out:
-	raw_spin_unlock(&vector_lock);
+	raw_spin_unlock_irqrestore(&vector_lock, flags);
 	return ret;
 }
 #endif /* HOTPLUG_CPU */
