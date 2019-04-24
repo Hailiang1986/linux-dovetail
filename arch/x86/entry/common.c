@@ -41,11 +41,29 @@
 /* Called on entry from user mode with IRQs off. */
 __visible inline void enter_from_user_mode(void)
 {
+	if (irqs_pipelined() && (!running_inband() || irqs_disabled()))
+		return;
 	CT_WARN_ON(ct_state() != CONTEXT_USER);
 	user_exit_irqoff();
 }
 #else
 static inline void enter_from_user_mode(void) {}
+#endif
+
+#ifdef CONFIG_IRQ_PIPELINE
+#define disable_local_irqs()	do {	\
+	hard_local_irq_disable();	\
+	trace_hardirqs_off();		\
+} while (0)
+#define enable_local_irqs()	do {	\
+	trace_hardirqs_on();		\
+	hard_local_irq_enable();	\
+} while (0)
+#define check_irqs_disabled()	hard_irqs_disabled()
+#else
+#define disable_local_irqs()	local_irq_disable()
+#define enable_local_irqs()	local_irq_enable()
+#define check_irqs_disabled()	irqs_disabled()
 #endif
 
 static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
@@ -143,7 +161,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 	 */
 	while (true) {
 		/* We have work to do. */
-		local_irq_enable();
+		enable_local_irqs();
 
 		if (cached_flags & _TIF_NEED_RESCHED)
 			schedule();
@@ -168,7 +186,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 			fire_user_return_notifiers();
 
 		/* Disable IRQs and retry */
-		local_irq_disable();
+		disable_local_irqs();
 
 		cached_flags = READ_ONCE(current_thread_info()->flags);
 
@@ -259,7 +277,7 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 
 	if (IS_ENABLED(CONFIG_PROVE_LOCKING) &&
 	    WARN(irqs_disabled(), "syscall %ld left IRQs disabled", regs->orig_ax))
-		local_irq_enable();
+		enable_local_irqs();
 
 	rseq_syscall(regs);
 
@@ -270,7 +288,7 @@ __visible inline void syscall_return_slowpath(struct pt_regs *regs)
 	if (unlikely(cached_flags & SYSCALL_EXIT_WORK_FLAGS))
 		syscall_slow_exit_work(regs, cached_flags);
 
-	local_irq_disable();
+	disable_local_irqs();
 	prepare_exit_to_usermode(regs);
 }
 
@@ -280,7 +298,7 @@ __visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	struct thread_info *ti;
 
 	enter_from_user_mode();
-	local_irq_enable();
+	enable_local_irqs();
 	ti = current_thread_info();
 	if (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)
 		nr = syscall_trace_enter(regs);
@@ -352,7 +370,7 @@ static __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 __visible void do_int80_syscall_32(struct pt_regs *regs)
 {
 	enter_from_user_mode();
-	local_irq_enable();
+	enable_local_irqs();
 	do_syscall_32_irqs_on(regs);
 }
 
@@ -376,7 +394,7 @@ __visible long do_fast_syscall_32(struct pt_regs *regs)
 
 	enter_from_user_mode();
 
-	local_irq_enable();
+	enable_local_irqs();
 
 	/* Fetch EBP from where the vDSO stashed it. */
 	if (
@@ -394,7 +412,7 @@ __visible long do_fast_syscall_32(struct pt_regs *regs)
 		) {
 
 		/* User code screwed up. */
-		local_irq_disable();
+		disable_local_irqs();
 		regs->ax = -EFAULT;
 		prepare_exit_to_usermode(regs);
 		return 0;	/* Keep it simple: use IRET. */

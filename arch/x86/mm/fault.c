@@ -15,6 +15,7 @@
 #include <linux/hugetlb.h>		/* hstate_index_to_shift	*/
 #include <linux/prefetch.h>		/* prefetchw			*/
 #include <linux/context_tracking.h>	/* exception_enter(), ...	*/
+#include <linux/irq_pipeline.h>		/* pipelined_fault_entry(), ...	*/
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_recover_from_page_fault()*/
 #include <linux/mm_types.h>
@@ -895,7 +896,7 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		/*
 		 * It's possible to have interrupts off here:
 		 */
-		local_irq_enable();
+		hard_local_irq_enable();
 
 		/*
 		 * Valid to do another page fault here because this one came
@@ -1357,11 +1358,11 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * potential system fault or CPU buglet:
 	 */
 	if (user_mode(regs)) {
-		local_irq_enable();
+		hard_local_irq_enable();
 		flags |= FAULT_FLAG_USER;
 	} else {
 		if (regs->flags & X86_EFLAGS_IF)
-			local_irq_enable();
+			hard_local_irq_enable();
 	}
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
@@ -1546,10 +1547,15 @@ dotraplinkage void
 do_page_fault(struct pt_regs *regs, unsigned long error_code, unsigned long address)
 {
 	enum ctx_state prev_state;
+	unsigned long flags;
+
+	flags = pipelined_fault_entry(regs);
 
 	prev_state = exception_enter();
 	trace_page_fault_entries(regs, error_code, address);
 	__do_page_fault(regs, error_code, address);
 	exception_exit(prev_state);
+
+	pipelined_fault_exit(flags);
 }
 NOKPROBE_SYMBOL(do_page_fault);

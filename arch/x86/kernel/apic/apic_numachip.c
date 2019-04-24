@@ -96,21 +96,21 @@ static void numachip_send_IPI_one(int cpu, int vector)
 	int local_apicid, apicid = per_cpu(x86_cpu_to_apicid, cpu);
 	unsigned int dmode;
 
-	preempt_disable();
+	hard_preempt_disable();
 	local_apicid = __this_cpu_read(x86_cpu_to_apicid);
 
 	/* Send via local APIC where non-local part matches */
 	if (!((apicid ^ local_apicid) >> NUMACHIP_LAPIC_BITS)) {
 		unsigned long flags;
 
-		local_irq_save(flags);
+		flags = hard_local_irq_save();
 		__default_send_IPI_dest_field(apicid, vector,
 			APIC_DEST_PHYSICAL);
-		local_irq_restore(flags);
-		preempt_enable();
+		hard_local_irq_restore(flags);
+		hard_preempt_enable();
 		return;
 	}
-	preempt_enable();
+	hard_preempt_enable();
 
 	dmode = (vector == NMI_VECTOR) ? APIC_DM_NMI : APIC_DM_FIXED;
 	numachip_apic_icr_write(apicid, dmode | vector);
