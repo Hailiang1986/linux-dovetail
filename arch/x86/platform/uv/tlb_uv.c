@@ -1272,7 +1272,8 @@ static void process_uv2_message(struct msg_desc *mdp, struct bau_control *bcp)
  * (the resource will not be freed until noninterruptable cpus see this
  *  interrupt; hardware may timeout the s/w ack and reply ERROR)
  */
-DEFINE_IDTENTRY_SYSVEC(sysvec_uv_bau_message)
+DEFINE_IDTENTRY_SYSVEC_PIPELINED(UV_BAU_MESSAGE,
+				 sysvec_uv_bau_message)
 {
 	int count = 0;
 	cycles_t time_start;

@@ -6,6 +6,7 @@
 #include <linux/mutex.h>
 #include <linux/list.h>
 #include <linux/stringify.h>
+#include <linux/irq_pipeline.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/memory.h>
@@ -348,9 +349,9 @@ static void __init_or_module noinline optimize_nops(struct alt_instr *a, u8 *ins
 			return;
 	}
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	add_nops(instr + (a->instrlen - a->padlen), a->padlen);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 
 	DUMP_BYTES(instr, a->instrlen, "%px: [%d:%d) optimized NOPs: ",
 		   instr, a->instrlen - a->padlen, a->padlen);
@@ -770,9 +771,9 @@ void __init_or_module text_poke_early(void *addr, const void *opcode,
 		 */
 		memcpy(addr, opcode, len);
 	} else {
-		local_irq_save(flags);
+		flags = hard_local_irq_save();
 		memcpy(addr, opcode, len);
-		local_irq_restore(flags);
+		hard_local_irq_restore(flags);
 		sync_core();
 
 		/*
@@ -802,10 +803,13 @@ typedef struct {
 static inline temp_mm_state_t use_temporary_mm(struct mm_struct *mm)
 {
 	temp_mm_state_t temp_state;
+	unsigned long flags;
 
 	lockdep_assert_irqs_disabled();
 	temp_state.mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	protect_inband_mm(flags);
 	switch_mm_irqs_off(NULL, mm, current);
+	unprotect_inband_mm(flags);
 
 	/*
 	 * If breakpoints are enabled, disable them while the temporary mm is
@@ -826,8 +830,12 @@ static inline temp_mm_state_t use_temporary_mm(struct mm_struct *mm)
 
 static inline void unuse_temporary_mm(temp_mm_state_t prev_state)
 {
+	unsigned long flags;
+
 	lockdep_assert_irqs_disabled();
+	protect_inband_mm(flags);
 	switch_mm_irqs_off(NULL, prev_state.mm, current);
+	unprotect_inband_mm(flags);
 
 	/*
 	 * Restore the breakpoints if they were disabled before the temporary mm
@@ -872,7 +880,7 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	 */
 	BUG_ON(!pages[0] || (cross_page_boundary && !pages[1]));
 
-	local_irq_save(flags);
+	local_irq_save_full(flags);
 
 	/*
 	 * Map the page without the global bit, as TLB flushing is done with
@@ -940,7 +948,7 @@ static void *__text_poke(void *addr, const void *opcode, size_t len)
 	BUG_ON(memcmp(addr, opcode, len));
 
 	pte_unmap_unlock(ptep, ptl);
-	local_irq_restore(flags);
+	local_irq_restore_full(flags);
 	return addr;
 }
 

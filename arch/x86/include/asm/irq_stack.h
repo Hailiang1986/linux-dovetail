@@ -14,6 +14,13 @@ static __always_inline bool irqstack_active(void)
 
 void asm_call_on_stack(void *sp, void *func, void *arg);
 
+/*
+ * IRQ pipeline: only in-band (soft-)irq handlers have to run on the
+ * irqstack, oob irq handlers must be lean by design therefore can run
+ * directly over the preempted context. Therefore, the guarantee that
+ * the in-band stage is currently stalled on the current CPU is enough
+ * to update irq_count atomically.
+ */
 static __always_inline void __run_on_irqstack(void *func, void *arg)
 {
 	void *tos = __this_cpu_read(hardirq_stack_ptr);

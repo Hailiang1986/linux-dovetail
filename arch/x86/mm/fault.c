@@ -748,7 +748,7 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		/*
 		 * It's possible to have interrupts off here:
 		 */
-		local_irq_enable();
+		local_irq_enable_full();
 
 		/*
 		 * Valid to do another page fault here because this one came
@@ -778,7 +778,7 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 
 		force_sig_fault(SIGSEGV, si_code, (void __user *)address);
 
-		local_irq_disable();
+		local_irq_disable_full();
 
 		return;
 	}
@@ -1189,11 +1189,11 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * potential system fault or CPU buglet:
 	 */
 	if (user_mode(regs)) {
-		local_irq_enable();
+		local_irq_enable_full();
 		flags |= FAULT_FLAG_USER;
 	} else {
 		if (regs->flags & X86_EFLAGS_IF)
-			local_irq_enable();
+			local_irq_enable_full();
 	}
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
@@ -1370,14 +1370,14 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 		 * doable w/o creating an unholy mess or turning the code
 		 * upside down.
 		 */
-		local_irq_disable();
+		local_irq_disable_full();
 	}
 }
 
 DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 {
 	unsigned long address = read_cr2();
-	bool rcu_exit;
+	struct rcu_exit_state rcu_exit;
 
 	prefetchw(&current->mm->mmap_lock);
 

@@ -11,12 +11,15 @@
 #include <linux/sched.h>
 #include <linux/sched/task_stack.h>
 #include <linux/mm.h>
+#include <linux/irq_pipeline.h>
 #include <linux/smp.h>
 #include <linux/errno.h>
+#include <linux/irqstage.h>
 #include <linux/ptrace.h>
 #include <linux/tracehook.h>
 #include <linux/audit.h>
 #include <linux/seccomp.h>
+#include <linux/unistd.h>
 #include <linux/signal.h>
 #include <linux/export.h>
 #include <linux/context_tracking.h>
@@ -114,6 +117,7 @@ static __always_inline void enter_from_user_mode(void)
  * 2) Invoke context tracking if enabled to adjust RCU state
  * 3) Clear CPU buffers if CPU is affected by MDS and the migitation is on.
  * 4) Tell lockdep that interrupts are enabled
+ * 5) Unstall the in-band stage of the interrupt pipeline
  */
 static __always_inline void exit_to_user_mode(void)
 {
@@ -125,6 +129,7 @@ static __always_inline void exit_to_user_mode(void)
 	user_enter_irqoff();
 	mds_user_clear_cpu_buffers();
 	lockdep_hardirqs_on(CALLER_ADDR0);
+	unstall_inband();
 }
 
 static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
@@ -219,7 +224,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 	 */
 	while (true) {
 		/* We have work to do. */
-		local_irq_enable();
+		local_irq_enable_full();
 
 		if (cached_flags & _TIF_NEED_RESCHED)
 			schedule();
@@ -244,7 +249,7 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 			fire_user_return_notifiers();
 
 		/* Disable IRQs and retry */
-		local_irq_disable();
+		local_irq_disable_full();
 
 		cached_flags = READ_ONCE(current_thread_info()->flags);
 
@@ -257,6 +262,8 @@ static void __prepare_exit_to_usermode(struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
 	u32 cached_flags;
+
+	check_hard_irqs_disabled();
 
 	addr_limit_user_check();
 
@@ -337,18 +344,23 @@ static void __syscall_return_slowpath(struct pt_regs *regs)
 
 	if (IS_ENABLED(CONFIG_PROVE_LOCKING) &&
 	    WARN(irqs_disabled(), "syscall %ld left IRQs disabled", regs->orig_ax))
-		local_irq_enable();
+		local_irq_enable_full();
 
 	rseq_syscall(regs);
 
 	/*
 	 * First do one-time work.  If these work items are enabled, we
 	 * want to run them exactly once per syscall exit with IRQs on.
+	 *
+	 * Dovetail: if this does not look like an in-band syscall, it
+	 * has to belong to the companion core. Typically,
+	 * __OOB_SYSCALL_BIT would be set in this value. Skip the slow
+	 * work for those syscalls.
 	 */
 	if (unlikely(cached_flags & SYSCALL_EXIT_WORK_FLAGS))
 		syscall_slow_exit_work(regs, cached_flags);
 
-	local_irq_disable();
+	local_irq_disable_full();
 	__prepare_exit_to_usermode(regs);
 }
 
@@ -368,13 +380,31 @@ __visible noinstr void syscall_return_slowpath(struct pt_regs *regs)
 __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 {
 	struct thread_info *ti;
+	int ret;
 
-	check_user_regs(regs);
+	if (running_inband()) {
+		check_user_regs(regs);
+		enter_from_user_mode();
+		instrumentation_begin();
+		/*
+		 * If pipelining interrupts, prepare for emulating a
+		 * stall -> unstall transition (we are currently
+		 * unstalled), fixing up the IRQ trace state in order
+		 * to keep lockdep happy (and silent).
+		 */
+		stall_inband_nocheck();
+		hard_cond_local_irq_enable();
+		local_irq_enable();
+	} else {
+		/*
+		 * We are running on the out-of-band stage, don't mess
+		 * with the in-band interrupt state. This is none of
+		 * our business. We may manipulate the hardware state
+		 * only.
+		 */
+		hard_local_irq_enable();
+	}
 
-	enter_from_user_mode();
-	instrumentation_begin();
-
-	local_irq_enable();
 	ti = current_thread_info();
 	if (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)
 		nr = syscall_trace_enter(regs);
@@ -390,6 +420,7 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 		regs->ax = x32_sys_call_table[nr](regs);
 #endif
 	}
+
 	__syscall_return_slowpath(regs);
 
 	instrumentation_end();
@@ -466,7 +497,7 @@ static bool __do_fast_syscall_32(struct pt_regs *regs)
 	if (res) {
 		/* User code screwed up. */
 		regs->ax = -EFAULT;
-		local_irq_disable();
+		local_irq_disable_full();
 		__prepare_exit_to_usermode(regs);
 		return false;
 	}
@@ -585,19 +616,41 @@ SYSCALL_DEFINE0(ni_syscall)
  * establish the proper context for NOHZ_FULL. Otherwise scheduling on exit
  * would not be possible.
  *
- * Returns: True if RCU has been adjusted on a kernel entry
- *	    False otherwise
+ * Returns: An aggregate storing various state information on entry:
+ *	    IDTENTRY_RCU_EXIT if RCU has been adjusted on a kernel
+ *	    entry.  IDTENTRY_INBAND_STALLED if the in-band stage was
+ *	    current and had to be stalled on kernel entry in order to
+ *	    mirror the hardware state.
  *
  * The return value must be fed into the rcu_exit argument of
  * idtentry_exit_cond_rcu().
  */
-bool noinstr idtentry_enter_cond_rcu(struct pt_regs *regs)
+struct rcu_exit_state noinstr idtentry_enter_cond_rcu(struct pt_regs *regs)
 {
+	int stall = 0;
+
+	if (running_oob())
+		return rcu_exit_code(IDTENTRY_OOB_ENTRY);
+
 	if (user_mode(regs)) {
+		if (irqs_pipelined()) {
+			WARN_ON_ONCE(irq_pipeline_debug() && irqs_disabled());
+			stall_inband_nocheck();
+			stall = IDTENTRY_INBAND_STALLED;
+		}
 		check_user_regs(regs);
 		enter_from_user_mode();
-		return false;
+		check_user_regs(regs);
+		return rcu_exit_code(stall);
 	}
+
+	/*
+	 * IRQ pipeline: If we trapped from kernel space, the virtual
+	 * state may or may not match the hardware state. Since hard
+	 * irqs are off on entry, we have to stall the in-band stage.
+	 */
+	if (irqs_pipelined() && !test_and_stall_inband_nocheck())
+		stall = IDTENTRY_INBAND_STALLED;
 
 	/*
 	 * If this entry hit the idle task invoke rcu_irq_enter() whether
@@ -634,7 +687,7 @@ bool noinstr idtentry_enter_cond_rcu(struct pt_regs *regs)
 		trace_hardirqs_off_finish();
 		instrumentation_end();
 
-		return true;
+		return rcu_exit_code(IDTENTRY_RCU_EXIT | stall);
 	}
 
 	/*
@@ -642,14 +695,19 @@ bool noinstr idtentry_enter_cond_rcu(struct pt_regs *regs)
 	 * to restart the tick in NOHZ mode. rcu_irq_enter_check_tick()
 	 * already contains a warning when RCU is not watching, so no point
 	 * in having another one here.
+	 *
+	 * When pipelining interrupts, the tick is restarted on kernel
+	 * exit, with hard irqs on.
 	 */
 	instrumentation_begin();
+
 	rcu_irq_enter_check_tick();
+
 	/* Use the combo lockdep/tracing function */
 	trace_hardirqs_off();
 	instrumentation_end();
 
-	return false;
+	return rcu_exit_code(stall);
 }
 
 static void idtentry_exit_cond_resched(struct pt_regs *regs, bool may_sched)
@@ -666,11 +724,31 @@ static void idtentry_exit_cond_resched(struct pt_regs *regs, bool may_sched)
 	trace_hardirqs_on();
 }
 
+#ifdef CONFIG_IRQ_PIPELINE
+
+static inline
+bool identry_may_preempt_schedule(struct rcu_exit_state rcu_exit,
+				struct pt_regs *regs)
+{
+	return !!(rcu_exit.val & IDTENTRY_INBAND_STALLED);
+}
+
+#else
+
+static inline
+bool identry_may_preempt_schedule(struct rcu_exit_state rcu_exit,
+				struct pt_regs *regs)
+{
+	return !!(regs->flags & X86_EFLAGS_IF);
+}
+
+#endif
+
 /**
  * idtentry_exit_cond_rcu - Handle return from exception with conditional RCU
  *			    handling
  * @regs:	Pointer to pt_regs (exception entry regs)
- * @rcu_exit:	Invoke rcu_irq_exit() if true
+ * @rcu_exit:	Invoke rcu_irq_exit() if IDTENTRY_RCU_EXIT is set
  *
  * Depending on the return target (kernel/user) this runs the necessary
  * preemption and work checks if possible and reguired and returns to
@@ -682,20 +760,25 @@ static void idtentry_exit_cond_resched(struct pt_regs *regs, bool may_sched)
  * Counterpart to idtentry_enter_cond_rcu(). The return value of the entry
  * function must be fed into the @rcu_exit argument.
  */
-void noinstr idtentry_exit_cond_rcu(struct pt_regs *regs, bool rcu_exit)
+void noinstr idtentry_exit_cond_rcu(struct pt_regs *regs,
+				struct rcu_exit_state rcu_exit)
 {
+	if (running_oob())
+		return;
+
 	lockdep_assert_irqs_disabled();
 
 	/* Check whether this returns to user mode */
 	if (user_mode(regs)) {
 		prepare_exit_to_usermode(regs);
-	} else if (regs->flags & X86_EFLAGS_IF) {
+		return;
+	} else if (identry_may_preempt_schedule(rcu_exit, regs)) {
 		/*
 		 * If RCU was not watching on entry this needs to be done
 		 * carefully and needs the same ordering of lockdep/tracing
 		 * and RCU as the return to user mode path.
 		 */
-		if (rcu_exit) {
+		if (rcu_exit.val & IDTENTRY_RCU_EXIT) {
 			instrumentation_begin();
 			/* Tell the tracer that IRET will enable interrupts */
 			trace_hardirqs_on_prepare();
@@ -703,7 +786,7 @@ void noinstr idtentry_exit_cond_rcu(struct pt_regs *regs, bool rcu_exit)
 			instrumentation_end();
 			rcu_irq_exit();
 			lockdep_hardirqs_on(CALLER_ADDR0);
-			return;
+			goto out;
 		}
 
 		instrumentation_begin();
@@ -714,9 +797,18 @@ void noinstr idtentry_exit_cond_rcu(struct pt_regs *regs, bool rcu_exit)
 		 * IRQ flags state is correct already. Just tell RCU if it
 		 * was not watching on entry.
 		 */
-		if (rcu_exit)
+		if (rcu_exit.val & IDTENTRY_RCU_EXIT)
 			rcu_irq_exit();
 	}
+
+out:
+	/*
+	 * If pipelining interrupts, clear the in-band stall bit if
+	 * idtentry_enter_cond_rcu() raised it in order to mirror the
+	 * hardware state. Compiled out otherwise.
+	 */
+	if (rcu_exit.val & IDTENTRY_INBAND_STALLED)
+		unstall_inband();
 }
 
 /**
@@ -800,9 +892,10 @@ static void __xen_pv_evtchn_do_upcall(void)
 __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 {
 	struct pt_regs *old_regs;
-	bool inhcall, rcu_exit;
+	bool inhcall;
+	struct rcu_exit_state rcu_exit;
 
-	rcu_exit = idtentry_enter_cond_rcu(regs);
+	rcu_exit.val = idtentry_enter_cond_rcu(regs);
 	old_regs = set_irq_regs(regs);
 
 	instrumentation_begin();
@@ -812,7 +905,7 @@ __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 	set_irq_regs(old_regs);
 
 	inhcall = get_and_clear_inhcall();
-	if (inhcall && !WARN_ON_ONCE(rcu_exit)) {
+	if (inhcall && !WARN_ON_ONCE(rcu_exit.val & IDTENTRY_RCU_EXIT)) {
 		instrumentation_begin();
 		idtentry_exit_cond_resched(regs, true);
 		instrumentation_end();

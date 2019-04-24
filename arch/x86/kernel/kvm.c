@@ -233,7 +233,7 @@ EXPORT_SYMBOL_GPL(kvm_read_and_reset_apf_flags);
 noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 {
 	u32 reason = kvm_read_and_reset_apf_flags();
-	bool rcu_exit;
+	struct rcu_exit_state rcu_exit;
 
 	switch (reason) {
 	case KVM_PV_REASON_PAGE_NOT_PRESENT:
