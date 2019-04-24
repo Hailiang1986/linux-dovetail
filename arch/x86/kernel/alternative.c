@@ -8,6 +8,7 @@
 #include <linux/list.h>
 #include <linux/stringify.h>
 #include <linux/highmem.h>
+#include <linux/irq_pipeline.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/memory.h>
@@ -220,13 +221,16 @@ __optimize_nops(u8 *instr, size_t len, struct insn *insn, int *next, int *prev, 
 	}
 
 	if (insn_is_nop(insn)) {
+		unsigned long flags;
 		int nop = i;
 
 		*next = skip_nops(instr, *next, len);
 		if (*target && *next == *target)
 			nop = *prev;
 
+		flags = hard_local_irq_save();
 		add_nop(instr + nop, *next - nop);
+		hard_local_irq_restore(flags);
 		DUMP_BYTES(ALT, instr, len, "%px: [%d:%d) optimized NOPs: ", instr, nop, *next);
 		return true;
 	}
@@ -1762,12 +1766,14 @@ void __init_or_module text_poke_early(void *addr, const void *opcode,
 		 * code cannot be running and speculative code-fetches are
 		 * prevented. Just change the code.
 		 */
+		flags = hard_local_irq_save();
 		memcpy(addr, opcode, len);
+		hard_local_irq_restore(flags);
 	} else {
-		local_irq_save(flags);
+		flags = hard_local_irq_save();
 		memcpy(addr, opcode, len);
 		sync_core();
-		local_irq_restore(flags);
+		hard_local_irq_restore(flags);
 
 		/*
 		 * Could also do a CLFLUSH here to speed up CPU recovery; but
@@ -1798,6 +1804,7 @@ static inline temp_mm_state_t use_temporary_mm(struct mm_struct *mm)
 	temp_mm_state_t temp_state;
 
 	lockdep_assert_irqs_disabled();
+	WARN_ON_ONCE(irq_pipeline_debug() && !hard_irqs_disabled());
 
 	/*
 	 * Make sure not to be in TLB lazy mode, as otherwise we'll end up
@@ -1905,7 +1912,7 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 	 */
 	VM_BUG_ON(!ptep);
 
-	local_irq_save(flags);
+	local_irq_save_full(flags);
 
 	pte = mk_pte(pages[0], pgprot);
 	set_pte_at(poking_mm, poking_addr, ptep, pte);
@@ -1958,7 +1965,7 @@ static void *__text_poke(text_poke_f func, void *addr, const void *src, size_t l
 		BUG_ON(memcmp(addr, src, len));
 	}
 
-	local_irq_restore(flags);
+	local_irq_restore_full(flags);
 	pte_unmap_unlock(ptep, ptl);
 	return addr;
 }
