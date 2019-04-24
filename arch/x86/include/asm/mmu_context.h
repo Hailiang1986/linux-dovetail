@@ -377,10 +377,13 @@ typedef struct {
 static inline temp_mm_state_t use_temporary_mm(struct mm_struct *mm)
 {
 	temp_mm_state_t temp_state;
+	unsigned long flags;
 
 	lockdep_assert_irqs_disabled();
 	temp_state.mm = this_cpu_read(cpu_tlbstate.loaded_mm);
+	protect_inband_mm(flags);
 	switch_mm_irqs_off(NULL, mm, current);
+	unprotect_inband_mm(flags);
 
 	/*
 	 * If breakpoints are enabled, disable them while the temporary mm is
@@ -401,8 +404,12 @@ static inline temp_mm_state_t use_temporary_mm(struct mm_struct *mm)
 
 static inline void unuse_temporary_mm(temp_mm_state_t prev_state)
 {
+	unsigned long flags;
+
 	lockdep_assert_irqs_disabled();
+	protect_inband_mm(flags);
 	switch_mm_irqs_off(NULL, prev_state.mm, current);
+	unprotect_inband_mm(flags);
 
 	/*
 	 * Restore the breakpoints if they were disabled before the temporary mm
