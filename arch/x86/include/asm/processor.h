@@ -560,6 +560,9 @@ static inline void arch_thread_struct_whitelist(unsigned long *offset,
  * have to worry about atomic accesses.
  */
 #define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
+#define TS_OOB			0x0004	/* Thread is running out-of-band */
+
+#define _TLF_OOB		TS_OOB
 
 static inline void
 native_load_sp0(unsigned long sp0)
