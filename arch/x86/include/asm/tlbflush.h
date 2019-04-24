@@ -284,7 +284,10 @@ static inline void cr4_init_shadow(void)
 
 static inline void __cr4_set(unsigned long cr4)
 {
-	lockdep_assert_irqs_disabled();
+	if (irqs_pipelined())
+		check_hard_irqs_disabled();
+	else
+		lockdep_assert_irqs_disabled();
 	this_cpu_write(cpu_tlbstate.cr4, cr4);
 	__write_cr4(cr4);
 }
@@ -292,21 +295,25 @@ static inline void __cr4_set(unsigned long cr4)
 /* Set in this cpu's CR4. */
 static inline void cr4_set_bits_irqsoff(unsigned long mask)
 {
-	unsigned long cr4;
+	unsigned long cr4, flags
 
+	flags = hard_local_irq_save();
 	cr4 = this_cpu_read(cpu_tlbstate.cr4);
 	if ((cr4 | mask) != cr4)
 		__cr4_set(cr4 | mask);
+	hard_local_irq_restore(flags);
 }
 
 /* Clear in this cpu's CR4. */
 static inline void cr4_clear_bits_irqsoff(unsigned long mask)
 {
-	unsigned long cr4;
+	unsigned long cr4, flags;
 
+	flags = hard_local_irq_save();
 	cr4 = this_cpu_read(cpu_tlbstate.cr4);
 	if ((cr4 & ~mask) != cr4)
 		__cr4_set(cr4 & ~mask);
+	hard_local_irq_restore(flags);
 }
 
 /* Set in this cpu's CR4. */
@@ -314,9 +321,9 @@ static inline void cr4_set_bits(unsigned long mask)
 {
 	unsigned long flags;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	cr4_set_bits_irqsoff(mask);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 /* Clear in this cpu's CR4. */
@@ -324,17 +331,19 @@ static inline void cr4_clear_bits(unsigned long mask)
 {
 	unsigned long flags;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	cr4_clear_bits_irqsoff(mask);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 static inline void cr4_toggle_bits_irqsoff(unsigned long mask)
 {
-	unsigned long cr4;
+	unsigned long cr4, flags;
 
+	flags = hard_local_irq_save();
 	cr4 = this_cpu_read(cpu_tlbstate.cr4);
 	__cr4_set(cr4 ^ mask);
+	hard_local_irq_restore(flags);
 }
 
 /* Read the CR4 shadow. */
@@ -437,7 +446,7 @@ static inline void __native_flush_tlb_global(void)
 	 * from interrupts. (Use the raw variant because this code can
 	 * be called from deep inside debugging code.)
 	 */
-	raw_local_irq_save(flags);
+	flags = hard_local_irq_save();
 
 	cr4 = this_cpu_read(cpu_tlbstate.cr4);
 	/* toggle PGE */
@@ -445,7 +454,7 @@ static inline void __native_flush_tlb_global(void)
 	/* write old PGE again and flush TLBs */
 	native_write_cr4(cr4);
 
-	raw_local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 /*
