@@ -114,6 +114,9 @@ static const __initconst struct idt_data apic_idts[] = {
 	INTG(CALL_FUNCTION_SINGLE_VECTOR, call_function_single_interrupt),
 	INTG(IRQ_MOVE_CLEANUP_VECTOR,	irq_move_cleanup_interrupt),
 	INTG(REBOOT_VECTOR,		reboot_interrupt),
+#ifdef CONFIG_IRQ_PIPELINE
+	INTG(RESCHEDULE_OOB_VECTOR,	reschedule_oob_interrupt),
+#endif
 #endif
 
 #ifdef CONFIG_X86_THERMAL_VECTOR
@@ -144,6 +147,9 @@ static const __initconst struct idt_data apic_idts[] = {
 #endif
 	INTG(SPURIOUS_APIC_VECTOR,	spurious_interrupt),
 	INTG(ERROR_APIC_VECTOR,		error_interrupt),
+#endif
+#ifdef CONFIG_IRQ_PIPELINE
+	INTG(TIMER_OOB_VECTOR,		timer_oob_interrupt),
 #endif
 };
 

@@ -271,10 +271,10 @@ void native_apic_icr_write(u32 low, u32 id)
 {
 	unsigned long flags;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	apic_write(APIC_ICR2, SET_APIC_DEST_FIELD(id));
 	apic_write(APIC_ICR, low);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 u64 native_apic_icr_read(void)
@@ -330,6 +330,9 @@ int lapic_get_maxlvt(void)
 static void __setup_APIC_LVTT(unsigned int clocks, int oneshot, int irqen)
 {
 	unsigned int lvtt_value, tmp_value;
+	unsigned long flags;
+
+	flags = hard_cond_local_irq_save();
 
 	lvtt_value = LOCAL_TIMER_VECTOR;
 	if (!oneshot)
@@ -352,6 +355,7 @@ static void __setup_APIC_LVTT(unsigned int clocks, int oneshot, int irqen)
 		 * According to Intel, MFENCE can do the serialization here.
 		 */
 		asm volatile("mfence" : : : "memory");
+		hard_cond_local_irq_restore(flags);
 		return;
 	}
 
@@ -365,6 +369,8 @@ static void __setup_APIC_LVTT(unsigned int clocks, int oneshot, int irqen)
 
 	if (!oneshot)
 		apic_write(APIC_TMICT, clocks / APIC_DIVISOR);
+
+	hard_cond_local_irq_restore(flags);
 }
 
 /*
@@ -470,25 +476,31 @@ static int lapic_next_event(unsigned long delta,
 static int lapic_next_deadline(unsigned long delta,
 			       struct clock_event_device *evt)
 {
+	unsigned long flags;
 	u64 tsc;
 
+	flags = hard_local_irq_save();
 	tsc = rdtsc();
 	wrmsrl(MSR_IA32_TSC_DEADLINE, tsc + (((u64) delta) * TSC_DIVISOR));
+	hard_local_irq_restore(flags);
 	return 0;
 }
 
 static int lapic_timer_shutdown(struct clock_event_device *evt)
 {
+	unsigned long flags;
 	unsigned int v;
 
 	/* Lapic used as dummy for broadcast ? */
 	if (evt->features & CLOCK_EVT_FEAT_DUMMY)
 		return 0;
 
+	flags = hard_local_irq_save();
 	v = apic_read(APIC_LVTT);
 	v |= (APIC_LVT_MASKED | LOCAL_TIMER_VECTOR);
 	apic_write(APIC_LVTT, v);
 	apic_write(APIC_TMICT, 0);
+	hard_local_irq_restore(flags);
 	return 0;
 }
 
@@ -1554,7 +1566,7 @@ static bool apic_check_and_ack(union apic_ir *irr, union apic_ir *isr)
 		 * per set bit.
 		 */
 		for_each_set_bit(bit, isr->map, APIC_IR_BITS)
-			ack_APIC_irq();
+			__ack_APIC_irq();
 		return true;
 	}
 
@@ -2190,7 +2202,7 @@ __visible void __irq_entry smp_spurious_interrupt(struct pt_regs *regs)
 	if (v & (1 << (vector & 0x1f))) {
 		pr_info("Spurious interrupt (vector 0x%02x) on CPU#%d. Acked\n",
 			vector, smp_processor_id());
-		ack_APIC_irq();
+		__ack_APIC_irq();
 	} else {
 		pr_info("Spurious interrupt (vector 0x%02x) on CPU#%d. Not pending!\n",
 			vector, smp_processor_id());
@@ -2224,7 +2236,7 @@ __visible void __irq_entry smp_error_interrupt(struct pt_regs *regs)
 	if (lapic_get_maxlvt() > 3)	/* Due to the Pentium erratum 3AP. */
 		apic_write(APIC_ESR, 0);
 	v = apic_read(APIC_ESR);
-	ack_APIC_irq();
+	__ack_APIC_irq();
 	atomic_inc(&irq_err_count);
 
 	apic_printk(APIC_DEBUG, KERN_DEBUG "APIC error on CPU%d: %02x",
