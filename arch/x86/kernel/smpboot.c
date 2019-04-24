@@ -318,7 +318,7 @@ static void notrace start_secondary(void *unused)
 	x86_platform.nmi_init();
 
 	/* enable local interrupts */
-	local_irq_enable();
+	local_irq_enable_full();
 
 	x86_cpuinit.setup_percpu_clockev();
 
@@ -1617,7 +1617,7 @@ void play_dead_common(void)
 	/*
 	 * With physical CPU hotplug, we should halt the cpu
 	 */
-	local_irq_disable();
+	local_irq_disable_full();
 }
 
 /*
