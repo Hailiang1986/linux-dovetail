@@ -1352,11 +1352,11 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 	/* Fault was in user mode and we need to take some action */
 	if ((m.cs & 3) == 3) {
 		ist_begin_non_atomic(regs);
-		local_irq_enable();
+		hard_local_irq_enable();
 
 		if (kill_it || do_memory_failure(&m))
 			force_sig(SIGBUS);
-		local_irq_disable();
+		hard_local_irq_disable();
 		ist_end_non_atomic();
 	} else {
 		if (!fixup_exception(regs, X86_TRAP_MC, error_code, 0))
