@@ -363,8 +363,8 @@ static inline int lock_is_held(const struct lockdep_map *lock)
 	return lock_is_held_type(lock, -1);
 }
 
-#define lockdep_is_held(lock)		lock_is_held(&(lock)->dep_map)
-#define lockdep_is_held_type(lock, r)	lock_is_held_type(&(lock)->dep_map, (r))
+#define lockdep_is_held(lock)		lock_is_held(LOCKDEP_ALTERNATIVES(lock))
+#define lockdep_is_held_type(lock, r)	lock_is_held_type(LOCKDEP_ALTERNATIVES(lock), (r))
 
 extern void lock_set_class(struct lockdep_map *lock, const char *name,
 			   struct lock_class_key *key, unsigned int subclass,
