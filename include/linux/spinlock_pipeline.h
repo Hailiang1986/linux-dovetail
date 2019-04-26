@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * Copyright (C) 2016 Philippe Gerum  <rpm@xenomai.org>.
+ */
 #ifndef __LINUX_SPINLOCK_PIPELINE_H
 #define __LINUX_SPINLOCK_PIPELINE_H
 
