@@ -77,7 +77,7 @@ DEFINE_PER_CPU(struct irq_pipeline_data, irq_pipeline) = {
 			.status = (1 << STAGE_STALL_BIT),
 		},
 	},
-	.__curr = &irq_pipeline.stages[0],
+	.__curr = 0,
 };
 
 #else /* !CONFIG_SMP */
@@ -101,7 +101,7 @@ DEFINE_PER_CPU(struct irq_pipeline_data, irq_pipeline) = {
 			},
 		},
 	},
-	.__curr = &irq_pipeline.stages[0],
+	.__curr = 0,
 };
 
 #endif /* !CONFIG_SMP */
@@ -1443,7 +1443,7 @@ static inline void fixup_percpu_data(void)
 
 	for_each_possible_cpu(cpu) {
 		p = &per_cpu(irq_pipeline, cpu);
-		p->__curr = &p->stages[0];
+		p->__curr = 0;
 		p->stages[0].stage = &inband_stage;
 		p->stages[0].log.map = &per_cpu(irq_map_array, cpu)[0];
 		p->stages[1].log.map = &per_cpu(irq_map_array, cpu)[1];
