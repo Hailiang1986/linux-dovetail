@@ -1224,7 +1224,7 @@ config DEBUG_LOCK_ALLOC
 
 if IRQ_PIPELINE && PROVE_LOCKING
 comment "WARNING! PROVE_LOCKING induces **massive** latency"
-comment "overhead for the co-kernel running on the head"
+comment "overhead for the code running on the out-of-band"
 comment "interrupt stage."
 endif
 
