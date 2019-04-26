@@ -112,7 +112,7 @@ void __bad_spinlock_type(void);
 			__ret = hard_ ## __base_op(__RAWLOCK(__lock), ##__args); \
 		else if (__builtin_types_compatible_p(typeof(__lock),	\
 						 mutable_spinlock_t *))	\
-			mutable_ ## __base_op(__RAWLOCK(__lock), ##__args); \
+			__ret = mutable_ ## __base_op(__RAWLOCK(__lock), ##__args); \
 		else							\
 			__bad_spinlock_type();				\
 		__ret;							\
