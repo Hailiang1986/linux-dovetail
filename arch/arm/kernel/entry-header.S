@@ -403,7 +403,7 @@
 
 /*
  * Branch to the exception epilogue, skipping the in-band work
- * if running over the head interrupt stage.
+ * if running over the out-of-band interrupt stage.
  */
 	.macro ret_to_user_pipelined, tmp
 #ifdef CONFIG_IRQ_PIPELINE
