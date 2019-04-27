@@ -50,9 +50,10 @@ void irq_pipeline_nmi_exit(void);
 /* Extract swap virtual and hardware interrupt states. */
 #define irqs_split_flags(__combo, __stall_r)				\
 	({								\
+		unsigned long __virt = (__combo);			\
 		*(__stall_r) = hard_irqs_disabled_flags(__combo);	\
-		__combo &= ~arch_irqs_virtual_to_native_flags(*(__stall_r)); \
-		arch_irqs_virtual_to_native_flags(__combo);		\
+		__virt &= ~arch_irqs_virtual_to_native_flags(*(__stall_r)); \
+		arch_irqs_virtual_to_native_flags(__virt);		\
 	})
 
 #else /* !CONFIG_IRQ_PIPELINE */
