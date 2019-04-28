@@ -214,6 +214,10 @@ static int vmap_p4d_range(pgd_t *pgd, unsigned long addr,
 	return 0;
 }
 
+void __weak arch_advertise_page_mapping(unsigned long start, unsigned long end)
+{
+}
+
 /*
  * Set up page tables in kva (addr, end). The ptes shall have prot "prot", and
  * will have pfns corresponding to the "pages" array.
@@ -237,6 +241,8 @@ static int vmap_page_range_noflush(unsigned long start, unsigned long end,
 		if (err)
 			return err;
 	} while (pgd++, addr = next, addr != end);
+
+	arch_advertise_page_mapping(start, end);
 
 	return nr;
 }
