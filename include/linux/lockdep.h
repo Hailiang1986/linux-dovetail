@@ -309,14 +309,14 @@ extern void lockdep_init_map(struct lockdep_map *lock, const char *name,
  * or they are too narrow (they suffer from a false class-split):
  */
 #define lockdep_set_class(lock, key) \
-	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #key, key, 0)
+	lockdep_init_map(LOCKDEP_ALT_DEPMAP(lock), #key, key, 0)
 #define lockdep_set_class_and_name(lock, key, name) \
-	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), name, key, 0)
+	lockdep_init_map(LOCKDEP_ALT_DEPMAP(lock), name, key, 0)
 #define lockdep_set_class_and_subclass(lock, key, sub) \
-	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #key, key, sub)
+	lockdep_init_map(LOCKDEP_ALT_DEPMAP(lock), #key, key, sub)
 #define lockdep_set_subclass(lock, sub)	\
-	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #lock,	\
-			 LOCKDEP_ALTERNATIVES(lock)->key, sub)
+	lockdep_init_map(LOCKDEP_ALT_DEPMAP(lock), #lock,	\
+			 LOCKDEP_ALT_DEPMAP(lock)->key, sub)
 
 #define lockdep_set_novalidate_class(lock) \
 	lockdep_set_class_and_name(lock, &__lockdep_no_validate__, #lock)
@@ -324,7 +324,7 @@ extern void lockdep_init_map(struct lockdep_map *lock, const char *name,
  * Compare locking classes
  */
 #define lockdep_match_class(lock, key) \
-	lockdep_match_key(LOCKDEP_ALTERNATIVES(lock), key)
+	lockdep_match_key(LOCKDEP_ALT_DEPMAP(lock), key)
 
 static inline int lockdep_match_key(struct lockdep_map *lock,
 				    struct lock_class_key *key)
@@ -363,8 +363,8 @@ static inline int lock_is_held(const struct lockdep_map *lock)
 	return lock_is_held_type(lock, -1);
 }
 
-#define lockdep_is_held(lock)		lock_is_held(LOCKDEP_ALTERNATIVES(lock))
-#define lockdep_is_held_type(lock, r)	lock_is_held_type(LOCKDEP_ALTERNATIVES(lock), (r))
+#define lockdep_is_held(lock)		lock_is_held(LOCKDEP_ALT_DEPMAP(lock))
+#define lockdep_is_held_type(lock, r)	lock_is_held_type(LOCKDEP_ALT_DEPMAP(lock), (r))
 
 extern void lock_set_class(struct lockdep_map *lock, const char *name,
 			   struct lock_class_key *key, unsigned int subclass,
@@ -389,26 +389,27 @@ extern void lock_unpin_lock(struct lockdep_map *lock, struct pin_cookie);
 #define lockdep_depth(tsk)	(debug_locks ? (tsk)->lockdep_depth : 0)
 
 #define lockdep_assert_held(l)	do {				\
-		WARN_ON(debug_locks && !lockdep_is_held(l));	\
+		WARN_ON(debug_locks && !LOCKDEP_HARD_DEBUG_RET(l, 1, lockdep_is_held(l))); \
 	} while (0)
 
 #define lockdep_assert_held_write(l)	do {			\
-		WARN_ON(debug_locks && !lockdep_is_held_type(l, 0));	\
+		WARN_ON(debug_locks && !LOCKDEP_HARD_DEBUG_RET(l, 1, lockdep_is_held_type(l, 0))); \
 	} while (0)
 
 #define lockdep_assert_held_read(l)	do {				\
-		WARN_ON(debug_locks && !lockdep_is_held_type(l, 1));	\
+		WARN_ON(debug_locks && !LOCKDEP_HARD_DEBUG_RET(l, 1, lockdep_is_held_type(l, 1))); \
 	} while (0)
 
 #define lockdep_assert_held_once(l)	do {				\
-		WARN_ON_ONCE(debug_locks && !lockdep_is_held(l));	\
+		WARN_ON_ONCE(debug_locks && !LOCKDEP_HARD_DEBUG_RET(l, 1, lockdep_is_held(l))); \
 	} while (0)
 
 #define lockdep_recursing(tsk)	((tsk)->lockdep_recursion)
 
-#define lockdep_pin_lock(l)	lock_pin_lock(&(l)->dep_map)
-#define lockdep_repin_lock(l,c)	lock_repin_lock(&(l)->dep_map, (c))
-#define lockdep_unpin_lock(l,c)	lock_unpin_lock(&(l)->dep_map, (c))
+#define lockdep_pin_lock(l)	LOCKDEP_HARD_DEBUG_RET(l, ({ struct pin_cookie cookie; cookie;} ), \
+							lock_pin_lock(LOCKDEP_ALT_DEPMAP(l)))
+#define lockdep_repin_lock(l,c)	LOCKDEP_HARD_DEBUG(l,, lock_repin_lock(LOCKDEP_ALT_DEPMAP(l), (c)))
+#define lockdep_unpin_lock(l,c)	LOCKDEP_HARD_DEBUG(l,, lock_unpin_lock(LOCKDEP_ALT_DEPMAP(l), (c)))
 
 #else /* !CONFIG_LOCKDEP */
 
