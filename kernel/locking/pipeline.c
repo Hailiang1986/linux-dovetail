@@ -38,7 +38,6 @@ void __mutable_spin_lock(struct raw_spinlock *rlock)
 
 	__flags = hard_local_irq_save();
 	hard_lock_acquire(rlock, 0, _RET_IP_);
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	lock->hwflags = __flags;
 }
@@ -69,13 +68,11 @@ void __mutable_spin_lock_irq(struct raw_spinlock *rlock)
 
 	if (running_inband()) {
 		set_stage_bit(STAGE_STALL_BIT, this_inband_staged());
-		if (!hard_irqs_disabled_flags(__flags))
-			trace_hardirqs_off();
+		trace_hardirqs_off();
 		preempt_disable();
 	}
 
 	hard_lock_acquire(rlock, 0, _RET_IP_);
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	lock->hwflags = __flags;
 }
@@ -92,8 +89,7 @@ void __mutable_spin_unlock_irq(struct raw_spinlock *rlock)
 	do_raw_spin_unlock(rlock);
 
 	if (running_inband()) {
-		if (!hard_irqs_disabled_flags(__flags))
-			trace_hardirqs_on();
+		trace_hardirqs_on();
 		clear_stage_bit(STAGE_STALL_BIT, this_inband_staged());
 		hard_local_irq_restore(__flags);
 		preempt_enable();
@@ -114,13 +110,11 @@ unsigned long __mutable_spin_lock_irqsave(struct raw_spinlock *rlock)
 	if (running_inband()) {
 		flags = test_and_set_stage_bit(STAGE_STALL_BIT,
 				       this_inband_staged());
-		if (!hard_irqs_disabled_flags(__flags))
-			trace_hardirqs_off();
+		trace_hardirqs_off();
 		preempt_disable();
 	}
 
 	hard_lock_acquire(rlock, 0, _RET_IP_);
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	lock->hwflags = __flags;
 
@@ -141,8 +135,7 @@ void __mutable_spin_unlock_irqrestore(struct raw_spinlock *rlock,
 
 	if (running_inband()) {
 		if (!flags) {
-			if (!hard_irqs_disabled_flags(__flags))
-				trace_hardirqs_on();
+			trace_hardirqs_on();
 			clear_stage_bit(STAGE_STALL_BIT,
 					this_inband_staged());
 		}
@@ -168,7 +161,7 @@ int __mutable_spin_trylock(struct raw_spinlock *rlock)
 
 	if (do_raw_spin_trylock(rlock)) {
 		lock->hwflags = __flags;
-		hard_lock_acquire(rlock, 1, _RET_IP_);
+		hard_trylock_acquire(rlock, 1, _RET_IP_);
 		return 1;
 	}
 
@@ -197,13 +190,12 @@ int __mutable_spin_trylock_irqsave(struct raw_spinlock *rlock,
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	if (inband) {
 		*flags = test_and_set_stage_bit(STAGE_STALL_BIT, p);
-		if (!hard_irqs_disabled_flags(__flags))
-			trace_hardirqs_off();
+		trace_hardirqs_off();
 		preempt_disable();
 	}
 
 	if (do_raw_spin_trylock(rlock)) {
-		hard_lock_acquire(rlock, 1, _RET_IP_);
+		hard_trylock_acquire(rlock, 1, _RET_IP_);
 		lock->hwflags = __flags;
 		return 1;
 	}
