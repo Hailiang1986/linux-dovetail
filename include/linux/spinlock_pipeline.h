@@ -24,7 +24,21 @@
 
 #define mutable_spin_lock_init(__rlock)	hard_spin_lock_init(__rlock)
 
+/*
+ * CAUTION: We don't want the hand-coded irq-enable of
+ * do_raw_spin_lock_flags(), hard locked sections assume that
+ * interrupts are not re-enabled during lock-acquire.
+ */
 #define hard_lock_acquire(__rlock, __try, __ip)				\
+	do {								\
+		if (irq_pipeline_debug_locking()) {			\
+			spin_acquire(&(__rlock)->dep_map, 0, __try, __ip); \
+			LOCK_CONTENDED(__rlock, do_raw_spin_trylock, do_raw_spin_lock); \
+		} else							\
+			do_raw_spin_lock(__rlock);			\
+	} while (0)
+
+#define hard_trylock_acquire(__rlock, __try, __ip)			\
 	do {								\
 		if (irq_pipeline_debug_locking())			\
 			spin_acquire(&(__rlock)->dep_map, 0, __try, __ip); \
@@ -57,7 +71,6 @@ static inline
 void hard_spin_lock(struct raw_spinlock *rlock)
 {
 	hard_lock_acquire(rlock, 0, _THIS_IP_);
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 }
 
 static inline
@@ -72,7 +85,6 @@ void hard_spin_lock_irq(struct raw_spinlock *rlock)
 {
 	hard_local_irq_disable();
 	hard_lock_acquire(rlock, 0, _THIS_IP_);
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 }
 
 static inline
@@ -98,12 +110,6 @@ unsigned long __hard_spin_lock_irqsave(struct raw_spinlock *rlock)
 	unsigned long flags = hard_local_irq_save();
 
 	hard_lock_acquire(rlock, 0, _THIS_IP_);
-	/*
-	 * We don't want the hand-coded irq-enable of
-	 * do_raw_spin_lock_flags(), hard locked sections assume that
-	 * interrupts are not re-enabled during lock-acquire.
-	 */
-	LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
 
 	return flags;
 }
