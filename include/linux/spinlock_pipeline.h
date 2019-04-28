@@ -201,10 +201,9 @@ void __mutable_spin_lock(struct raw_spinlock *rlock);
 
 static inline void mutable_spin_lock(struct raw_spinlock *rlock)
 {
-	if (in_pipeline()) {
+	if (in_pipeline())
 		hard_lock_acquire(rlock, 0, _THIS_IP_);
-		LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
-	} else
+	else
 		__mutable_spin_lock(rlock);
 }
 
@@ -223,10 +222,9 @@ void __mutable_spin_lock_irq(struct raw_spinlock *rlock);
 
 static inline void mutable_spin_lock_irq(struct raw_spinlock *rlock)
 {
-	if (in_pipeline()) {
+	if (in_pipeline())
 		hard_lock_acquire(rlock, 0, _THIS_IP_);
-		LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
-	} else
+	else
 		__mutable_spin_lock_irq(rlock);
 }
 
@@ -247,7 +245,6 @@ unsigned long __mutable_spin_lock_irqsave(struct raw_spinlock *rlock);
 	do {								\
 		if (in_pipeline()) {					\
 			hard_lock_acquire(__rlock, 0, _THIS_IP_);	\
-			LOCK_CONTENDED(__rlock, do_raw_spin_trylock, do_raw_spin_lock); \
 			(__flags) = hard_local_save_flags();		\
 		} else							\
 			(__flags) = __mutable_spin_lock_irqsave(__rlock); \
