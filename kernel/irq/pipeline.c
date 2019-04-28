@@ -492,6 +492,11 @@ trace_on_debug unsigned long test_and_disable_stage(int *irqsoff)
 	if (running_inband()) {
 		stalled = test_and_set_stage_bit(STAGE_STALL_BIT,
 						 this_inband_staged());
+		if (!irq_pipeline_debug_locking()) {
+			trace_hardirqs_off();
+			if (!*irqsoff)
+				hard_local_irq_enable();
+		}
 		flags = irqs_merge_flags(flags, stalled);
 		if (stalled)
 			*irqsoff = 1;
@@ -520,20 +525,26 @@ trace_on_debug void restore_stage(unsigned long combo)
 	unsigned long flags = combo;
 	int stalled;
 
-	WARN_ON_ONCE(irq_pipeline_debug() && !hard_irqs_disabled());
+	WARN_ON_ONCE(irq_pipeline_debug_locking() && !hard_irqs_disabled());
 
 	if (running_inband()) {
 		flags = irqs_split_flags(combo, &stalled);
-		if (!stalled)
+		if (!stalled) {
+			if (!irq_pipeline_debug_locking()) {
+				hard_local_irq_disable();
+				trace_hardirqs_on();
+			}
 			clear_stage_bit(STAGE_STALL_BIT,
 					this_inband_staged());
+		}
 	}
 
 	/*
-	 * The interrupt bit is the only hardware flag present in the
-	 * combo state, all other status bits have been cleared by
-	 * irqs_merge_flags(), so don't ever try to reload the
-	 * hardware status register with such value directly!
+	 * The hardware interrupt bit is the only flag which may be
+	 * present in the combo state at this point, all other status
+	 * bits have been cleared by irqs_merge_flags(), so don't ever
+	 * try to reload the hardware status register with such value
+	 * directly!
 	 */
 	if (!hard_irqs_disabled_flags(flags))
 		hard_local_irq_enable();
