@@ -1145,6 +1145,7 @@ config LOCK_STAT
 	select DEBUG_MUTEXES
 	select DEBUG_RT_MUTEXES if RT_MUTEXES
 	select DEBUG_LOCK_ALLOC
+	select DEBUG_HARD_LOCKS
 	default n
 	help
 	 This feature enables tracking lock contention points
@@ -1222,8 +1223,23 @@ config DEBUG_LOCK_ALLOC
 	 spin_lock_init()/mutex_init()/etc., or whether there is any lock
 	 held during task exit.
 
-if IRQ_PIPELINE && PROVE_LOCKING
-comment "WARNING! PROVE_LOCKING induces **massive** latency"
+config DEBUG_HARD_LOCKS
+	bool "Debug hard spinlocks"
+	depends on DEBUG_IRQ_PIPELINE && LOCKDEP
+	---help---
+	  Turn on this option for enabling LOCKDEP for hard spinlock
+	  types used in interrupt pipelining.
+
+	  Keep in mind that enabling such feature will ruin the
+	  latency figures for any out-of-band code, this is merely
+	  useful for proving the correctness of the locking scheme of
+	  such code without any consideration for real-time
+	  guarantees. You have been warned.
+
+	  If unsure, say N.
+
+if DEBUG_HARD_LOCKS
+comment "WARNING! DEBUG_HARD_LOCKS induces **massive** latency"
 comment "overhead for the code running on the out-of-band"
 comment "interrupt stage."
 endif
