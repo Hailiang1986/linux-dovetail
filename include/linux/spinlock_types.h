@@ -118,7 +118,7 @@ void __bad_spinlock_type(void);
 		__ret;							\
 	})
 
-#define LOCKDEP_ALTERNATIVES(__lock)					\
+#define LOCKDEP_ALT_DEPMAP(__lock)					\
 	({								\
 		struct lockdep_map *__ret;				\
 		if (__builtin_types_compatible_p(typeof(&(__lock)->dep_map), \
@@ -127,6 +127,30 @@ void __bad_spinlock_type(void);
 		else							\
 			__ret = (struct lockdep_map *)(&(__lock)->dep_map); \
 		__ret;							\
+	})
+
+#define LOCKDEP_HARD_DEBUG(__lock, __nodebug, __debug)	\
+	do {						\
+		if (__builtin_types_compatible_p(typeof(__lock),	\
+						raw_spinlock_t *) ||	\
+			irq_pipeline_debug_locking()) {			\
+			__debug;			\
+		} else {				\
+			__nodebug;			\
+		}					\
+	} while (0)
+
+#define LOCKDEP_HARD_DEBUG_RET(__lock, __nodebug, __debug)	\
+	({						\
+		typeof(__nodebug) __ret;		\
+		if (__builtin_types_compatible_p(typeof(__lock),	\
+						raw_spinlock_t *) ||	\
+			irq_pipeline_debug_locking()) {			\
+			__ret = (__debug);		\
+		} else {				\
+			__ret = (__nodebug);		\
+		}					\
+		__ret;					\
 	})
 
 #define __HARD_SPIN_LOCK_UNLOCKED(__rlock)	\
@@ -174,7 +198,11 @@ typedef raw_spinlock_t mutable_spinlock_t;
 #define LOCK_ALTERNATIVES_RET(__lock, __base_op, __raw_form, __args...) \
 	__raw_form
 
-#define LOCKDEP_ALTERNATIVES(__lock)	(&(__lock)->dep_map)
+#define LOCKDEP_ALT_DEPMAP(__lock)	(&(__lock)->dep_map)
+
+#define LOCKDEP_HARD_DEBUG(__lock, __nondebug, __debug)		do { __debug; } while (0)
+
+#define LOCKDEP_HARD_DEBUG_RET(__lock, __nondebug, __debug)	({ __debug; })
 
 #define DEFINE_HARD_SPINLOCK(x)		DEFINE_RAW_SPINLOCK(x)
 
