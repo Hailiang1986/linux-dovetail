@@ -20,37 +20,9 @@
 #include <linux/slab.h>
 #include "settings.h"
 
-/*
- * Configure and register the proxy device.
- */
-static void torture_device_register(struct clock_event_device *proxy_ced,
-				    struct clock_event_device *real_ced)
-{
-	u32 freq = (1000000000ULL * real_ced->mult) >> real_ced->shift;
+static DEFINE_PER_CPU(struct clock_proxy_device, torture_tick_device);
 
-	/*
-	 * Ensure the proxy device has a better rating than the real
-	 * one, so that it will be picked immediately as the system
-	 * tick device when registered.
-	 */
-	proxy_ced->rating = real_ced->rating + 1;
-
-	/*
-	 * Configure the proxy as a transparent device, which passes
-	 * on timing requests to the real device unmodified. This is
-	 * basically the default configuration we received from
-	 * tick_install_proxy().
-	 */
-	clockevents_config_and_register(proxy_ced, freq,
-					real_ced->min_delta_ticks,
-					real_ced->max_delta_ticks);
-
-	pr_alert("irq_pipeline" TORTURE_FLAG
-		 " CPU%d: proxy tick registered (%u.%02uMHz)\n",
-		 raw_smp_processor_id(), freq / 1000000, (freq / 10000) % 100);
-}
-
-static void torture_event_handler(struct clock_event_device *real_ced)
+static void torture_event_handler(struct clock_event_device *dev)
 {
 	/*
 	 * We are running on the oob stage, in NMI-like mode. Schedule
@@ -60,19 +32,30 @@ static void torture_event_handler(struct clock_event_device *real_ced)
 	tick_notify_proxy();
 }
 
-static struct proxy_tick_ops proxy_ops = {
-	.register_device = torture_device_register,
-	.handle_event = torture_event_handler,
-};
+static struct clock_proxy_device *get_percpu_device(void)
+{
+	struct clock_proxy_device *dev = raw_cpu_ptr(&torture_tick_device);
+
+	/*
+	 * This test module is only activated once, so this is ok to
+	 * assume that torture_tick_device is zeroed since init. In
+	 * case of multiple activations, we'd need to zero @dev
+	 * manually to make sure not to inherit callbacks and
+	 * settings from a previous run.
+	 */
+	dev->handle_oob_event = torture_event_handler;
+
+	return dev;
+}
 
 static int start_tick_takeover_test(void)
 {
-	return tick_install_proxy(&proxy_ops, cpu_online_mask);
+	return tick_install_proxy(get_percpu_device, cpu_online_mask);
 }
 
 static void stop_tick_takeover_test(void)
 {
-	tick_uninstall_proxy(&proxy_ops, cpu_online_mask);
+	tick_uninstall_proxy(cpu_online_mask);
 }
 
 struct stop_machine_p_data {
