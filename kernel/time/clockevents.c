@@ -97,6 +97,7 @@ static int __clockevents_switch_state(struct clock_event_device *dev,
 	/* Transition with new state-specific callbacks */
 	switch (state) {
 	case CLOCK_EVT_STATE_DETACHED:
+	case CLOCK_EVT_STATE_RESERVED:
 		/* The clockevent device is getting replaced. Shut it down. */
 
 	case CLOCK_EVT_STATE_SHUTDOWN:
@@ -437,6 +438,67 @@ int clockevents_unbind_device(struct clock_event_device *ced, int cpu)
 }
 EXPORT_SYMBOL_GPL(clockevents_unbind_device);
 
+#ifdef CONFIG_IRQ_PIPELINE
+
+/**
+ * clockevents_register_proxy - register a proxy device on the current CPU
+ * @dev:	proxy to register
+ */
+int clockevents_register_proxy(struct clock_proxy_device *dev)
+{
+	struct clock_event_device *proxy_dev, *real_dev;
+	unsigned long flags;
+	u32 freq;
+
+	raw_spin_lock_irqsave(&clockevents_lock, flags);
+
+	proxy_dev = &dev->proxy_device;
+	clockevent_set_state(proxy_dev, CLOCK_EVT_STATE_DETACHED);
+
+	real_dev = tick_setup_proxy(dev);
+	if (real_dev == NULL) {
+		raw_spin_unlock_irqrestore(&clockevents_lock, flags);
+		return -ENODEV;
+	}
+
+	list_add(&proxy_dev->list, &clockevent_devices);
+	tick_check_new_device(proxy_dev);
+	clockevents_notify_released();
+
+	raw_spin_unlock_irqrestore(&clockevents_lock, flags);
+
+	freq = (1000000000ULL * real_dev->mult) >> real_dev->shift;
+	printk(KERN_INFO "CPU%d: proxy tick device registered (%u.%02uMHz)\n",
+		 smp_processor_id(), freq / 1000000, (freq / 10000) % 100);
+
+	return 0;
+}
+
+void clockevents_unregister_proxy(struct clock_proxy_device *dev)
+{
+	unsigned long flags;
+	int ret;
+
+	clockevents_register_device(dev->real_device);
+	clockevents_switch_state(dev->real_device, CLOCK_EVT_STATE_DETACHED);
+
+	/*
+	 *  Pop the proxy device, do not give it back to the
+	 *  framework.
+	 */
+	raw_spin_lock_irqsave(&clockevents_lock, flags);
+	ret = clockevents_replace(&dev->proxy_device);
+	raw_spin_unlock_irqrestore(&clockevents_lock, flags);
+
+	if (WARN_ON(ret))
+		return;
+
+	printk(KERN_INFO "CPU%d: proxy tick device unregistered\n",
+		smp_processor_id());
+}
+
+#endif
+
 /**
  * clockevents_register_device - register a clock event device
  * @dev:	device to register
@@ -575,9 +637,13 @@ void clockevents_exchange_device(struct clock_event_device *old,
 	 */
 	if (old) {
 		module_put(old->owner);
-		clockevents_switch_state(old, CLOCK_EVT_STATE_DETACHED);
 		list_del(&old->list);
-		list_add(&old->list, &clockevents_released);
+		if (new && new->features & CLOCK_EVT_FEAT_PROXY) {
+			clockevents_switch_state(old, CLOCK_EVT_STATE_RESERVED);
+		} else {
+			clockevents_switch_state(old, CLOCK_EVT_STATE_DETACHED);
+			list_add(&old->list, &clockevents_released);
+		}
 	}
 
 	if (new) {
