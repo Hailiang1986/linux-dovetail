@@ -39,6 +39,7 @@ enum clock_event_state {
 	CLOCK_EVT_STATE_PERIODIC,
 	CLOCK_EVT_STATE_ONESHOT,
 	CLOCK_EVT_STATE_ONESHOT_STOPPED,
+	CLOCK_EVT_STATE_RESERVED,
 };
 
 /*
@@ -69,15 +70,15 @@ enum clock_event_state {
 # define CLOCK_EVT_FEAT_HRTIMER		0x000080
 
 /*
- * Clockevent device can work with pipelined timer events.
+ * Interrupt pipeline support:
+ *
+ * - Clockevent device can work with pipelined timer events (i.e. proxied).
+ * - Device currently delivers high-precision events via out-of-band interrupts.
+ * - Device acts as a proxy for timer interrupt pipelining.
  */
 # define CLOCK_EVT_FEAT_PIPELINE	0x000100
-
-/*
- * Clockevent device can deliver high-precision events via out-of-band
- * interrupts.
- */
 # define CLOCK_EVT_FEAT_OOB		0x000200
+# define CLOCK_EVT_FEAT_PROXY		0x000400
 
 /**
  * struct clock_event_device - clock event device descriptor
@@ -147,6 +148,11 @@ struct clock_event_device {
 static inline bool clockevent_state_detached(struct clock_event_device *dev)
 {
 	return dev->state_use_accessors == CLOCK_EVT_STATE_DETACHED;
+}
+
+static inline bool clockevent_state_reserved(struct clock_event_device *dev)
+{
+	return dev->state_use_accessors == CLOCK_EVT_STATE_RESERVED;
 }
 
 static inline bool clockevent_state_shutdown(struct clock_event_device *dev)
@@ -235,35 +241,45 @@ static inline void tick_setup_hrtimer_broadcast(void) { }
 # endif
 
 #ifdef CONFIG_IRQ_PIPELINE
+
+struct clock_proxy_device {
+	struct clock_event_device proxy_device;
+	struct clock_event_device *real_device;
+	void (*handle_inband_event)(struct clock_event_device *dev);
+	void (*handle_oob_event)(struct clock_event_device *dev);
+};
+
 void tick_notify_proxy(void);
+
 static inline
 void clockevents_handle_event(struct clock_event_device *ced)
 {
 	/*
 	 * If called from the in-band stage, or for delivering a
-	 * high-precision timer event to the oob stage, call the event
-	 * handler immediately.
+	 * high-precision timer event to the out-of-band stage, call
+	 * the event handler immediately.
 	 *
-	 * Otherwise, ced is still the regular tick device for the
-	 * current CPU which does not handle high-precision events, so
-	 * just relay the incoming tick to the in-band stage via
-	 * tick_notify_proxy().  This situation can happen when all
-	 * CPUs receive the same out-of-band IRQ from a given clock
-	 * event device, but only a subset of the online CPUs is
-	 * actually interested in high-precision events from that
-	 * device.
+	 * Otherwise, ced is still the in-band tick device for the
+	 * current CPU, so just relay the incoming tick to the in-band
+	 * stage via tick_notify_proxy().  This situation can happen
+	 * when all CPUs receive the same out-of-band IRQ from a given
+	 * clock event device, but only a subset of the online CPUs has
+	 * enabled a proxy.
 	 */
 	if (clockevent_is_oob(ced) || running_inband())
 		ced->event_handler(ced);
 	else
 		tick_notify_proxy();
 }
+
 #else
+
 static inline
 void clockevents_handle_event(struct clock_event_device *ced)
 {
 	ced->event_handler(ced);
 }
+
 #endif	/* !CONFIG_IRQ_PIPELINE */
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS: */
