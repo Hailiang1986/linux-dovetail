@@ -8,6 +8,7 @@
 #include <linux/printk.h>
 #include <linux/delay.h>
 #include <linux/smp.h>
+#include <linux/err.h>
 #include <linux/cpumask.h>
 #include <linux/clockchips.h>
 #include <linux/interrupt.h>
@@ -183,11 +184,11 @@ static irqreturn_t proxy_irq_handler(int sirq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#define interpose_proxy_handler(__dev, __real, __h)		\
+#define interpose_proxy_handler(__proxy, __real, __h)		\
 	do {							\
-		if ((__dev)->__h == NULL) {			\
+		if ((__proxy)->__h == NULL) {			\
 			if ((__real)->__h)			\
-				(__dev)->__h = proxy_ ## __h;	\
+				(__proxy)->__h = proxy_ ## __h;	\
 		}						\
 	} while (0)
 
@@ -196,18 +197,9 @@ static irqreturn_t proxy_irq_handler(int sirq, void *dev_id)
  * current CPU. Called with clockevents_lock held so that the tick
  * device does not change under our feet.
  */
-struct clock_event_device *tick_setup_proxy(struct clock_proxy_device *dev)
+void tick_setup_proxy(struct clock_proxy_device *dev)
 {
 	struct clock_event_device *proxy_dev, *real_dev;
-
-	real_dev = raw_cpu_ptr(&tick_cpu_device)->evtdev;
-	if ((real_dev->features &
-			(CLOCK_EVT_FEAT_PIPELINE|CLOCK_EVT_FEAT_ONESHOT))
-		!= (CLOCK_EVT_FEAT_PIPELINE|CLOCK_EVT_FEAT_ONESHOT)) {
-		WARN(1, "cannot use clockevent device %s in proxy mode!",
-			real_dev->name);
-		return NULL;
-	}
 
 	/*
 	 * The assumption is that clockevents_register_proxy() cannot
@@ -215,8 +207,8 @@ struct clock_event_device *tick_setup_proxy(struct clock_proxy_device *dev)
 	 * in proxy_tick_device.
 	 */
 	__this_cpu_write(proxy_tick_device, dev);
+	real_dev = dev->real_device;
 	dev->handle_inband_event = real_dev->event_handler;
-	dev->real_device = real_dev;
 
 	/*
 	 * Inherit the feature bits since the proxy device has the
@@ -232,10 +224,13 @@ struct clock_event_device *tick_setup_proxy(struct clock_proxy_device *dev)
 	proxy_dev->rating = real_dev->rating + 1;
 	proxy_dev->mult = real_dev->mult;
 	proxy_dev->shift = real_dev->shift;
-	proxy_dev->max_delta_ticks = real_dev->max_delta_ticks;
-	proxy_dev->min_delta_ticks = real_dev->min_delta_ticks;
-	proxy_dev->max_delta_ns = real_dev->max_delta_ns;
-	proxy_dev->min_delta_ns = real_dev->min_delta_ns;
+
+	if (!(proxy_dev->features & CLOCK_EVT_FEAT_KTIME)) {
+		proxy_dev->max_delta_ticks = real_dev->max_delta_ticks;
+		proxy_dev->min_delta_ticks = real_dev->min_delta_ticks;
+		proxy_dev->max_delta_ns = real_dev->max_delta_ns;
+		proxy_dev->min_delta_ns = real_dev->min_delta_ns;
+	}
 
 	/*
 	 * Interpose default handlers which are safe wrt preemption by
@@ -250,8 +245,6 @@ struct clock_event_device *tick_setup_proxy(struct clock_proxy_device *dev)
 	interpose_proxy_handler(proxy_dev, real_dev, tick_resume);
 	interpose_proxy_handler(proxy_dev, real_dev, set_next_event);
 	interpose_proxy_handler(proxy_dev, real_dev, set_next_ktime);
-
-	return real_dev;
 }
 
 static int enable_oob_timer(void *arg) /* hard_irqs_disabled() */
@@ -281,27 +274,28 @@ static int enable_oob_timer(void *arg) /* hard_irqs_disabled() */
 }
 
 struct proxy_install_arg {
-	struct clock_proxy_device *(*get_device)(void);
+	struct clock_proxy_device *(*get_percpu_device)
+	(struct clock_event_device *real_dev);
 	int result;
 };
 
 static void register_proxy_device(void *arg) /* irqs_disabled() */
 {
 	struct proxy_install_arg *req = arg;
-	struct clock_proxy_device *dev = req->get_device();
-	int ret;
+	struct clock_proxy_device *dev;
 
-	ret = clockevents_register_proxy(dev);
-	if (ret) {
+	dev = clockevents_register_proxy(req->get_percpu_device);
+	if (IS_ERR(dev)) {
 		if (!req->result)
-			req->result = ret;
+			req->result = PTR_ERR(dev);
 	} else {
 		dev->real_device->event_handler = proxy_event_handler;
 	}
 }
 
-int tick_install_proxy(struct clock_proxy_device *(*get_percpu_device)(void),
-		       const struct cpumask *cpumask)
+int tick_install_proxy(struct clock_proxy_device *
+		(*get_percpu_device)(struct clock_event_device *real_dev),
+		const struct cpumask *cpumask)
 {
 	struct proxy_install_arg arg;
 	int ret, sirq;
@@ -376,7 +370,7 @@ int tick_install_proxy(struct clock_proxy_device *(*get_percpu_device)(void),
 	 *            clockevents_handle_event(proxy_dev)
 	 *                handle_inband_event(proxy_dev)
 	 */
-	arg.get_device = get_percpu_device;
+	arg.get_percpu_device = get_percpu_device;
 	arg.result = 0;
 	on_each_cpu_mask(cpumask, register_proxy_device, &arg, true);
 	if (arg.result) {
