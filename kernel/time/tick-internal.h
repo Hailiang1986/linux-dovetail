@@ -56,8 +56,10 @@ extern int clockevents_program_event(struct clock_event_device *dev,
 extern void clockevents_handle_noop(struct clock_event_device *dev);
 extern int __clockevents_update_freq(struct clock_event_device *dev, u32 freq);
 #ifdef CONFIG_IRQ_PIPELINE
-extern struct clock_event_device *tick_setup_proxy(struct clock_proxy_device *dev);
-extern int clockevents_register_proxy(struct clock_proxy_device *dev);
+void tick_setup_proxy(struct clock_proxy_device *dev);
+extern struct clock_proxy_device *
+clockevents_register_proxy(struct clock_proxy_device *
+			get_percpu_device(struct clock_event_device *real_dev));
 extern void clockevents_unregister_proxy(struct clock_proxy_device *dev);
 #endif
 extern ssize_t sysfs_get_uname(const char *buf, char *dst, size_t cnt);
