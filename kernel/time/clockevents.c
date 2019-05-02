@@ -444,22 +444,36 @@ EXPORT_SYMBOL_GPL(clockevents_unbind_device);
  * clockevents_register_proxy - register a proxy device on the current CPU
  * @dev:	proxy to register
  */
-int clockevents_register_proxy(struct clock_proxy_device *dev)
+struct clock_proxy_device *clockevents_register_proxy(struct clock_proxy_device *
+			get_percpu_device(struct clock_event_device *real_dev))
 {
 	struct clock_event_device *proxy_dev, *real_dev;
+	struct clock_proxy_device *dev;
 	unsigned long flags;
 	u32 freq;
 
 	raw_spin_lock_irqsave(&clockevents_lock, flags);
 
+	real_dev = raw_cpu_ptr(&tick_cpu_device)->evtdev;
+	if ((real_dev->features &
+			(CLOCK_EVT_FEAT_PIPELINE|CLOCK_EVT_FEAT_ONESHOT))
+		!= (CLOCK_EVT_FEAT_PIPELINE|CLOCK_EVT_FEAT_ONESHOT)) {
+		raw_spin_unlock_irqrestore(&clockevents_lock, flags);
+		WARN(1, "cannot use clockevent device %s in proxy mode!",
+			real_dev->name);
+		return ERR_PTR(-ENODEV);
+	}
+
+	dev = get_percpu_device(real_dev);
+	if (IS_ERR(dev)) {
+		raw_spin_unlock_irqrestore(&clockevents_lock, flags);
+		return dev;
+	}
+
+	dev->real_device = real_dev;
 	proxy_dev = &dev->proxy_device;
 	clockevent_set_state(proxy_dev, CLOCK_EVT_STATE_DETACHED);
-
-	real_dev = tick_setup_proxy(dev);
-	if (real_dev == NULL) {
-		raw_spin_unlock_irqrestore(&clockevents_lock, flags);
-		return -ENODEV;
-	}
+	tick_setup_proxy(dev);
 
 	list_add(&proxy_dev->list, &clockevent_devices);
 	tick_check_new_device(proxy_dev);
@@ -471,7 +485,7 @@ int clockevents_register_proxy(struct clock_proxy_device *dev)
 	printk(KERN_INFO "CPU%d: proxy tick device registered (%u.%02uMHz)\n",
 		 smp_processor_id(), freq / 1000000, (freq / 10000) % 100);
 
-	return 0;
+	return dev;
 }
 
 void clockevents_unregister_proxy(struct clock_proxy_device *dev)
