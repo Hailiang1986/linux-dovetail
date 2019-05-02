@@ -32,7 +32,8 @@ static void torture_event_handler(struct clock_event_device *dev)
 	tick_notify_proxy();
 }
 
-static struct clock_proxy_device *get_percpu_device(void)
+static struct clock_proxy_device *
+get_percpu_device(struct clock_event_device *real_dev)
 {
 	struct clock_proxy_device *dev = raw_cpu_ptr(&torture_tick_device);
 
