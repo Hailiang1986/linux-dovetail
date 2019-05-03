@@ -245,8 +245,9 @@ static inline void tick_setup_hrtimer_broadcast(void) { }
 struct clock_proxy_device {
 	struct clock_event_device proxy_device;
 	struct clock_event_device *real_device;
-	void (*handle_inband_event)(struct clock_event_device *dev);
 	void (*handle_oob_event)(struct clock_event_device *dev);
+	void (*__setup_handler)(struct clock_proxy_device *dev);
+	void (*__original_handler)(struct clock_event_device *dev);
 };
 
 void tick_notify_proxy(void);
