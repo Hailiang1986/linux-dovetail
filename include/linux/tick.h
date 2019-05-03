@@ -22,8 +22,7 @@ extern void tick_handover_do_timer(void);
 extern void tick_cleanup_dead_cpu(int cpu);
 
 #ifdef CONFIG_IRQ_PIPELINE
-int tick_install_proxy(struct clock_proxy_device *(*get_percpu_device)
-		(struct clock_event_device *real_dev),
+int tick_install_proxy(void (*setup_proxy)(struct clock_proxy_device *dev),
 		const struct cpumask *cpumask);
 void tick_uninstall_proxy(const struct cpumask *cpumask);
 void tick_notify_proxy(void);
