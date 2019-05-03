@@ -443,14 +443,12 @@ EXPORT_SYMBOL_GPL(tick_uninstall_proxy);
 
 void tick_notify_proxy(void)
 {
-	if (WARN_ON_ONCE(irq_pipeline_debug() && running_inband()))
-		return;
-
 	/*
 	 * Schedule a tick on the proxy device to occur from the
 	 * in-band stage, which will trigger proxy_irq_handler() at
 	 * some point (i.e. when the in-band stage is back in control
-	 * and not stalled).
+	 * and not stalled). Note that we might be called from the
+	 * in-band stage in some cases (see proxy_irq_handler()).
 	 */
 	irq_post_inband(proxy_tick_irq);
 }
