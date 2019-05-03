@@ -20,8 +20,6 @@
 #include <linux/slab.h>
 #include "settings.h"
 
-static DEFINE_PER_CPU(struct clock_proxy_device, torture_tick_device);
-
 static void torture_event_handler(struct clock_event_device *dev)
 {
 	/*
@@ -32,26 +30,14 @@ static void torture_event_handler(struct clock_event_device *dev)
 	tick_notify_proxy();
 }
 
-static struct clock_proxy_device *
-get_percpu_device(struct clock_event_device *real_dev)
+static void setup_proxy(struct clock_proxy_device *dev)
 {
-	struct clock_proxy_device *dev = raw_cpu_ptr(&torture_tick_device);
-
-	/*
-	 * This test module is only activated once, so this is ok to
-	 * assume that torture_tick_device is zeroed since init. In
-	 * case of multiple activations, we'd need to zero @dev
-	 * manually to make sure not to inherit callbacks and
-	 * settings from a previous run.
-	 */
 	dev->handle_oob_event = torture_event_handler;
-
-	return dev;
 }
 
 static int start_tick_takeover_test(void)
 {
-	return tick_install_proxy(get_percpu_device, cpu_online_mask);
+	return tick_install_proxy(setup_proxy, cpu_online_mask);
 }
 
 static void stop_tick_takeover_test(void)
