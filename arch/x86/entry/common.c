@@ -78,6 +78,15 @@ __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
 	add_random_kstack_offset();
 	nr = syscall_enter_from_user_mode(regs, nr);
 
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			hard_local_irq_disable();
+			goto done;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done_inband;
+	}
+
 	instrumentation_begin();
 
 	if (!do_syscall_x64(regs, nr) && !do_syscall_x32(regs, nr) && nr != -1) {
@@ -86,7 +95,9 @@ __visible noinstr bool do_syscall_64(struct pt_regs *regs, int nr)
 	}
 
 	instrumentation_end();
+done_inband:
 	syscall_exit_to_user_mode(regs);
+done:
 
 	/*
 	 * Check that the register state is valid for using SYSRET to exit
@@ -269,11 +280,22 @@ __visible noinstr void do_int80_syscall_32(struct pt_regs *regs)
 	 * the semantics of syscall_get_nr().
 	 */
 	nr = syscall_enter_from_user_mode(regs, nr);
+
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			hard_local_irq_disable();
+			return;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done;
+	}
+
 	instrumentation_begin();
 
 	do_syscall_32_irqs_on(regs, nr);
 
 	instrumentation_end();
+done:
 	syscall_exit_to_user_mode(regs);
 }
 #endif /* !CONFIG_IA32_EMULATION */
@@ -317,9 +339,20 @@ static noinstr bool __do_fast_syscall_32(struct pt_regs *regs)
 
 	nr = syscall_enter_from_user_mode_work(regs, nr);
 
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			instrumentation_end();
+			hard_local_irq_disable();
+			return true;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done;
+	}
+
 	/* Now this is just like a normal syscall. */
 	do_syscall_32_irqs_on(regs, nr);
 
+done:
 	instrumentation_end();
 	syscall_exit_to_user_mode(regs);
 	return true;
