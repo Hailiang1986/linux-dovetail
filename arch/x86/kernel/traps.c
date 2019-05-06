@@ -14,6 +14,7 @@
 
 #include <linux/context_tracking.h>
 #include <linux/interrupt.h>
+#include <linux/irq_pipeline.h>
 #include <linux/kallsyms.h>
 #include <linux/spinlock.h>
 #include <linux/kprobes.h>
@@ -72,33 +73,45 @@ DECLARE_BITMAP(system_vectors, NR_VECTORS);
 
 #ifdef CONFIG_IRQ_PIPELINE
 
-unsigned long pipelined_fault_entry(struct pt_regs *regs)
+unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
 
+	/*
+	 * NOTE: having entered the IST context when the companion
+	 * core is notified that an exception has been taken from
+	 * out-of-band context is not an issue. At best that core
+	 * could plan for a deferred switch to inband mode, which by
+	 * definition cannot involve immediate schedule().
+	 */
+	oob_trap_notify(trapnr, regs);
+
 	flags = hard_local_irq_save();
 
-	if (hard_irqs_disabled_flags(flags))
+	if (hard_irqs_disabled_flags(flags)) {
 		nosync = test_and_set_stage_bit(STAGE_STALL_BIT,
 					this_inband_staged());
+		trace_hardirqs_off();
+	}
 	if (oob_stage_present())
 		hard_local_irq_enable();
 
 	return irqs_merge_flags(flags, nosync);
 }
 
-void pipelined_fault_exit(unsigned long combo)
+void pipelined_fault_exit(int trapnr, struct pt_regs *regs,
+			unsigned long combo)
 {
 	unsigned long flags;
 	int nosync;
 
-	WARN_ON_ONCE(irq_pipeline_debug() &&
-		oob_stage_present() && hard_irqs_disabled());
+	oob_trap_finalize(trapnr, regs);
 
 	flags = irqs_split_flags(combo, &nosync);
 	if (!nosync) {
 		hard_local_irq_disable();
+		trace_hardirqs_on();
 		clear_stage_bit(STAGE_STALL_BIT, this_inband_staged());
 		if (!hard_irqs_disabled_flags(flags))
 			hard_local_irq_enable();
@@ -111,7 +124,7 @@ void pipelined_fault_exit(unsigned long combo)
 static inline void cond_local_irq_enable(struct pt_regs *regs)
 {
 	if (regs->flags & X86_EFLAGS_IF)
-		hard_local_irq_enable();
+		local_irq_enable_full();
 }
 
 static inline void cond_local_irq_disable(struct pt_regs *regs)
@@ -147,9 +160,16 @@ void ist_enter(struct pt_regs *regs)
 }
 NOKPROBE_SYMBOL(ist_enter);
 
-void ist_exit(struct pt_regs *regs)
+void ist_exit(struct pt_regs *regs, bool oob_entry)
 {
-	preempt_enable_no_resched();
+	/*
+	 * If dovetailing, we might have switched from out-of-band to
+	 * in-band context in the middle of the IST section, in which
+	 * case the preemption count was reset during the
+	 * transition. Skip the update if so.
+	 */
+	if (!oob_entry || running_oob())
+		preempt_enable_no_resched();
 
 	if (!user_mode(regs))
 		rcu_nmi_exit();
@@ -298,8 +318,6 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 {
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
-
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 
 	/*
@@ -307,7 +325,9 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 	 * notifier chain.
 	 */
 	if (!user_mode(regs) && fixup_bug(regs, trapnr))
-		goto out;
+		return;
+
+	flags = pipelined_fault_entry(trapnr, regs);
 
 	if (notify_die(DIE_TRAP, str, regs, error_code, trapnr, signr) !=
 			NOTIFY_STOP) {
@@ -315,8 +335,7 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 		do_trap(trapnr, signr, str, regs, error_code, sicode, addr);
 	}
 
-out:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(trapnr, regs, flags);
 }
 
 #define IP ((void __user *)uprobe_get_trap_addr(regs))
@@ -501,20 +520,20 @@ dotraplinkage void do_bounds(struct pt_regs *regs, long error_code)
 {
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_BR, regs);
 
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	if (notify_die(DIE_TRAP, "bounds", regs, error_code,
 			X86_TRAP_BR, SIGSEGV) == NOTIFY_STOP)
-		goto out;
+		return;
 	cond_local_irq_enable(regs);
 
 	if (!user_mode(regs))
 		die("bounds", regs, error_code);
 
 	do_trap(X86_TRAP_BR, SIGSEGV, "bounds", regs, error_code, 0, NULL);
-out:
-	pipelined_fault_exit(flags);
+
+	pipelined_fault_exit(X86_TRAP_BR, regs, flags);
 }
 
 enum kernel_gp_hint {
@@ -569,10 +588,10 @@ dotraplinkage void do_general_protection(struct pt_regs *regs, long error_code)
 	unsigned long gp_addr, flags;
 	int ret;
 
+	flags = pipelined_fault_entry(X86_TRAP_GP, regs);
+
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	cond_local_irq_enable(regs);
-
-	flags = pipelined_fault_entry(regs);
 
 	if (static_cpu_has(X86_FEATURE_UMIP)) {
 		if (user_mode(regs) && fixup_umip_exception(regs))
@@ -580,7 +599,7 @@ dotraplinkage void do_general_protection(struct pt_regs *regs, long error_code)
 	}
 
 	if (v8086_mode(regs)) {
-		local_irq_enable();
+		hard_local_irq_enable();
 		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
 		goto out;
 	}
@@ -635,20 +654,18 @@ dotraplinkage void do_general_protection(struct pt_regs *regs, long error_code)
 		gp_addr = 0;
 
 	die_addr(desc, regs, error_code, gp_addr);
-
 out:
-	pipelined_fault_exit(flags);
+ 	pipelined_fault_exit(X86_TRAP_GP, regs, flags);
 }
 NOKPROBE_SYMBOL(do_general_protection);
 
 dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 {
+	bool oob_entry = running_oob();
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
-
 	if (poke_int3_handler(regs))
-		goto out;
+		return;
 
 	/*
 	 * Unlike any other non-IST entry, we can be called from a kprobe in
@@ -676,21 +693,23 @@ dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 		goto exit;
 #endif
 
+	flags = pipelined_fault_entry(X86_TRAP_BP, regs);
+
 	if (notify_die(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
 			SIGTRAP) == NOTIFY_STOP)
-		goto exit;
+		goto exit_fault;
 
 	cond_local_irq_enable(regs);
 	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, 0, NULL);
 	cond_local_irq_disable(regs);
-
+exit_fault:
+	pipelined_fault_exit(X86_TRAP_BP, regs, flags);
 exit:
 	if (!user_mode(regs)) {
-		preempt_enable_no_resched();
+		if (!oob_entry || running_oob()) /* See ist_exit(). */
+			preempt_enable_no_resched();
 		rcu_nmi_exit();
 	}
-out:
-	pipelined_fault_exit(flags);
 }
 NOKPROBE_SYMBOL(do_int3);
 
@@ -790,6 +809,7 @@ static bool is_sysenter_singlestep(struct pt_regs *regs)
 dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 {
 	struct task_struct *tsk = current;
+	bool oob_entry = running_oob();
 	int user_icebp = 0;
 	unsigned long dr6, flags;
 	int si_code;
@@ -824,7 +844,7 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 		     is_sysenter_singlestep(regs))) {
 		dr6 &= ~DR_STEP;
 		if (!dr6)
-			goto exit;
+			goto out;
 		/*
 		 * else we might have gotten a single-step trap and hit a
 		 * watchpoint at the same time, in which case we should fall
@@ -845,14 +865,14 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 
 #ifdef CONFIG_KPROBES
 	if (kprobe_debug_handler(regs))
-		goto exit;
+		goto out;
 #endif
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_DB, regs);
 
 	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, error_code,
 							SIGTRAP) == NOTIFY_STOP)
-		goto exit_fault;
+		goto exit;
 
 	/*
 	 * Let others (NMI) know that the debug stack is in use
@@ -868,7 +888,7 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 					X86_TRAP_DB);
 		cond_local_irq_disable(regs);
 		debug_stack_usage_dec();
-		goto exit_fault;
+		goto exit;
 	}
 
 	if (WARN_ON_ONCE((dr6 & DR_STEP) && !user_mode(regs))) {
@@ -888,10 +908,10 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 	cond_local_irq_disable(regs);
 	debug_stack_usage_dec();
 
-exit_fault:
-	pipelined_fault_exit(flags);
 exit:
-	ist_exit(regs);
+	pipelined_fault_exit(X86_TRAP_DB, regs, flags);
+out:
+	ist_exit(regs, oob_entry);
 }
 NOKPROBE_SYMBOL(do_debug);
 
@@ -909,7 +929,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	char *str = (trapnr == X86_TRAP_MF) ? "fpu exception" :
 						"simd exception";
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(trapnr, regs);
 
 	cond_local_irq_enable(regs);
 
@@ -942,7 +962,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	force_sig_fault(SIGFPE, si_code,
 			(void __user *)uprobe_get_trap_addr(regs));
 out:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(trapnr, regs, flags);
 }
 
 dotraplinkage void do_coprocessor_error(struct pt_regs *regs, long error_code)
@@ -994,14 +1014,14 @@ do_device_not_available(struct pt_regs *regs, long error_code)
 		struct math_emu_info info = { };
 		unsigned long flags;
 
-		flags = pipelined_fault_entry(regs);
+		flags = pipelined_fault_entry(X86_TRAP_NM, regs);
 
 		cond_local_irq_enable(regs);
 
 		info.regs = regs;
 		math_emulate(&info);
 
-		pipelined_fault_exit(flags);
+		pipelined_fault_exit(X86_TRAP_NM, regs, flags);
 		return;
 	}
 #endif

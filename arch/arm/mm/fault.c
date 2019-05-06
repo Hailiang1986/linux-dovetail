@@ -51,11 +51,6 @@ unsigned long fault_entry(int exception, struct pt_regs *regs)
 
 	trace_ARM_trap_entry(exception, regs);
 
-	/*
-	 * CAUTION: The co-kernel might demote the current context to
-	 * the in-band stage as a result of handling this trap,
-	 * returning with hard irqs on.
-	 */
 	oob_trap_notify(exception, regs);
 
 	flags = hard_local_irq_save();
