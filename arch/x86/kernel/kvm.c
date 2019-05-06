@@ -244,6 +244,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 	}
 
 	rcu_exit = idtentry_enter_cond_rcu(regs);
+	oob_trap_notify(X86_TRAP_OTHER, regs);
 	instrumentation_begin();
 
 	/*
@@ -264,6 +265,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 	}
 
 	instrumentation_end();
+	oob_trap_unwind(X86_TRAP_OTHER, regs);
 	idtentry_exit_cond_rcu(regs, rcu_exit);
 	return true;
 }
