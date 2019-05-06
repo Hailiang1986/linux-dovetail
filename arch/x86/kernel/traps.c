@@ -71,10 +71,12 @@ DECLARE_BITMAP(system_vectors, NR_VECTORS);
 
 #ifdef CONFIG_IRQ_PIPELINE
 
-unsigned long pipelined_fault_entry(struct pt_regs *regs)
+unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
+
+	oob_trap_notify(trapnr, regs);
 
 	flags = hard_local_irq_save();
 
@@ -298,7 +300,7 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 {
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(trapnr, regs);
 
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 
@@ -481,7 +483,7 @@ dotraplinkage void do_bounds(struct pt_regs *regs, long error_code)
 {
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_BR, regs);
 
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	if (notify_die(DIE_TRAP, "bounds", regs, error_code,
@@ -552,7 +554,7 @@ dotraplinkage void do_general_protection(struct pt_regs *regs, long error_code)
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	cond_local_irq_enable(regs);
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_GP, regs);
 
 	if (static_cpu_has(X86_FEATURE_UMIP)) {
 		if (user_mode(regs) && fixup_umip_exception(regs))
@@ -625,7 +627,7 @@ dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 {
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_BP, regs);
 
 	if (poke_int3_handler(regs))
 		goto out;
@@ -819,7 +821,7 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 		goto exit;
 #endif
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_DB, regs);
 
 	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, error_code,
 							SIGTRAP) == NOTIFY_STOP)
@@ -880,7 +882,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	char *str = (trapnr == X86_TRAP_MF) ? "fpu exception" :
 						"simd exception";
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(trapnr, regs);
 
 	cond_local_irq_enable(regs);
 
@@ -947,7 +949,7 @@ do_device_not_available(struct pt_regs *regs, long error_code)
 		struct math_emu_info info = { };
 		unsigned long flags;
 
-		flags = pipelined_fault_entry(regs);
+		flags = pipelined_fault_entry(X86_TRAP_NM, regs);
 
 		cond_local_irq_enable(regs);
 

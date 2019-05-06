@@ -1532,7 +1532,7 @@ do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	prefetchw(&current->mm->mmap_sem);
 	trace_page_fault_entries(regs, hw_error_code, address);
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_PF, regs);
 
 	if (unlikely(kmmio_fault(regs, address)))
 		goto out;
