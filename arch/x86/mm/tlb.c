@@ -154,10 +154,12 @@ EXPORT_SYMBOL_GPL(leave_mm);
 void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	       struct task_struct *tsk)
 {
-	unsigned long flags;
+	unsigned long flags, _flags;
 
 	local_irq_save(flags);
+	protect_inband_mm(_flags);
 	switch_mm_irqs_off(prev, next, tsk);
+	unprotect_inband_mm(_flags);
 	local_irq_restore(flags);
 }
 
@@ -293,7 +295,9 @@ void switch_mm_irqs_off(struct mm_struct *prev, struct mm_struct *next,
 	 */
 
 	/* We don't want flush_tlb_func_* to run concurrently with us. */
-	if (IS_ENABLED(CONFIG_PROVE_LOCKING))
+	if (IS_ENABLED(CONFIG_DOVETAIL))
+		WARN_ON_ONCE(!hard_irqs_disabled());
+	else if (IS_ENABLED(CONFIG_PROVE_LOCKING))
 		WARN_ON_ONCE(!irqs_disabled());
 
 	/*
@@ -531,15 +535,23 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 	 *                   wants us to catch up to.
 	 */
 	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	u32 loaded_mm_asid = this_cpu_read(cpu_tlbstate.loaded_mm_asid);
-	u64 mm_tlb_gen = atomic64_read(&loaded_mm->context.tlb_gen);
-	u64 local_tlb_gen = this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].tlb_gen);
+	u64 mm_tlb_gen, local_tlb_gen;
+	u32 loaded_mm_asid;
+	unsigned long flags;
 
 	/* This code cannot presently handle being reentered. */
 	VM_WARN_ON(!irqs_disabled());
 
-	if (unlikely(loaded_mm == &init_mm))
+	protect_inband_mm(flags);
+
+	loaded_mm_asid = this_cpu_read(cpu_tlbstate.loaded_mm_asid);
+	mm_tlb_gen = atomic64_read(&loaded_mm->context.tlb_gen);
+	local_tlb_gen = this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].tlb_gen);
+
+	if (unlikely(loaded_mm == &init_mm)) {
+		unprotect_inband_mm(flags);
 		return;
+	}
 
 	VM_WARN_ON(this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].ctx_id) !=
 		   loaded_mm->context.ctx_id);
@@ -555,6 +567,7 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 		 * IPIs to lazy TLB mode CPUs.
 		 */
 		switch_mm_irqs_off(NULL, &init_mm, NULL);
+		unprotect_inband_mm(flags);
 		return;
 	}
 
@@ -565,12 +578,15 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 		 * be handled can catch us all the way up, leaving no work for
 		 * the second flush.
 		 */
+		unprotect_inband_mm(flags);
 		trace_tlb_flush(reason, 0);
 		return;
 	}
 
 	WARN_ON_ONCE(local_tlb_gen > mm_tlb_gen);
 	WARN_ON_ONCE(f->new_tlb_gen > mm_tlb_gen);
+
+	unprotect_inband_mm(flags);
 
 	/*
 	 * If we get to this point, we know that our TLB is out of date.
