@@ -41,6 +41,15 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	add_random_kstack_offset();
 	nr = syscall_enter_from_user_mode(regs, nr);
 
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			hard_local_irq_disable();
+			return;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done;
+	}
+
 	instrumentation_begin();
 	if (likely(nr < NR_syscalls)) {
 		nr = array_index_nospec(nr, NR_syscalls);
@@ -54,6 +63,7 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 #endif
 	}
 	instrumentation_end();
+done:
 	syscall_exit_to_user_mode(regs);
 }
 #endif
@@ -91,11 +101,22 @@ __visible noinstr void do_int80_syscall_32(struct pt_regs *regs)
 	 * or may not be necessary, but it matches the old asm behavior.
 	 */
 	nr = (unsigned int)syscall_enter_from_user_mode(regs, nr);
+
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			hard_local_irq_disable();
+			return;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done;
+	}
+
 	instrumentation_begin();
 
 	do_syscall_32_irqs_on(regs, nr);
 
 	instrumentation_end();
+done:
 	syscall_exit_to_user_mode(regs);
 }
 
@@ -139,9 +160,20 @@ static noinstr bool __do_fast_syscall_32(struct pt_regs *regs)
 	/* The case truncates any ptrace induced syscall nr > 2^32 -1 */
 	nr = (unsigned int)syscall_enter_from_user_mode_work(regs, nr);
 
+	if (dovetailing()) {
+		if (nr == EXIT_SYSCALL_OOB) {
+			instrumentation_end();
+			hard_local_irq_disable();
+			return true;
+		}
+		if (nr == EXIT_SYSCALL_TAIL)
+			goto done;
+	}
+
 	/* Now this is just like a normal syscall. */
 	do_syscall_32_irqs_on(regs, nr);
 
+done:
 	instrumentation_end();
 	syscall_exit_to_user_mode(regs);
 	return true;
