@@ -156,6 +156,8 @@ int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
 	unsigned long local_flags = READ_ONCE(ti_local_flags(ti));
 	int ret;
 
+	WARN_ON_ONCE(dovetail_debug() && hard_irqs_disabled());
+
 	/*
 	 * If __OOB_SYSCALL_BIT is set into the syscall number and we
 	 * are running out-of-band, pass the request directly to the
@@ -209,7 +211,7 @@ int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
 		}
 	}
 
-	return 0; /* pass syscall down to the host. */
+	return 0; /* pass syscall down to the in-band dispatcher. */
 }
 
 void __weak handle_oob_trap_entry(unsigned int trapnr, struct pt_regs *regs)

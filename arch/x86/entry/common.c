@@ -117,7 +117,7 @@ static __always_inline void enter_from_user_mode(void)
  * 2) Invoke context tracking if enabled to adjust RCU state
  * 3) Clear CPU buffers if CPU is affected by MDS and the migitation is on.
  * 4) Tell lockdep that interrupts are enabled
- * 5) Unstall the in-band stage of the interrupt pipeline
+ * 5) Unstall the in-band stage of the interrupt pipeline if current
  */
 static __always_inline void exit_to_user_mode(void)
 {
@@ -129,7 +129,8 @@ static __always_inline void exit_to_user_mode(void)
 	user_enter_irqoff();
 	mds_user_clear_cpu_buffers();
 	lockdep_hardirqs_on(CALLER_ADDR0);
-	unstall_inband();
+	if (running_inband())
+		unstall_inband();
 }
 
 static void do_audit_syscall_entry(struct pt_regs *regs, u32 arch)
@@ -258,6 +259,19 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 	}
 }
 
+static inline bool do_retuser(u32 cached_flags)
+{
+	if (dovetailing() && (cached_flags & _TIF_RETUSER)) {
+		hard_local_irq_enable();
+		inband_retuser_notify();
+		hard_local_irq_disable();
+		/* RETUSER might have switched oob */
+		return running_inband();
+	}
+
+	return false;
+}
+
 static void __prepare_exit_to_usermode(struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
@@ -270,6 +284,7 @@ static void __prepare_exit_to_usermode(struct pt_regs *regs)
 	lockdep_assert_irqs_disabled();
 	lockdep_sys_exit();
 
+again:
 	cached_flags = READ_ONCE(ti->flags);
 
 	if (unlikely(cached_flags & EXIT_TO_USERMODE_LOOP_FLAGS))
@@ -299,6 +314,9 @@ static void __prepare_exit_to_usermode(struct pt_regs *regs)
 	 */
 	ti->status &= ~(TS_COMPAT|TS_I386_REGS_POKED);
 #endif
+
+	if (do_retuser(cached_flags))
+		goto again;
 }
 
 static noinstr void prepare_exit_to_usermode(struct pt_regs *regs)
@@ -357,10 +375,13 @@ static void __syscall_return_slowpath(struct pt_regs *regs)
 	 * __OOB_SYSCALL_BIT would be set in this value. Skip the slow
 	 * work for those syscalls.
 	 */
-	if (unlikely(cached_flags & SYSCALL_EXIT_WORK_FLAGS))
+	if (unlikely(cached_flags & SYSCALL_EXIT_WORK_FLAGS) &&
+		(!irqs_pipelined() ||
+			syscall_get_nr(current, regs) < NR_syscalls))
 		syscall_slow_exit_work(regs, cached_flags);
 
 	local_irq_disable_full();
+	 /* Dovetail: may switch oob on RETUSER! */
 	__prepare_exit_to_usermode(regs);
 }
 
@@ -383,9 +404,9 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	int ret;
 
 	if (running_inband()) {
-		check_user_regs(regs);
 		enter_from_user_mode();
 		instrumentation_begin();
+		check_user_regs(regs);
 		/*
 		 * If pipelining interrupts, prepare for emulating a
 		 * stall -> unstall transition (we are currently
@@ -405,6 +426,19 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 		hard_local_irq_enable();
 	}
 
+	/*
+	 * Pipeline the syscall to the companion core if the current
+	 * task wants this. Compiled out if not dovetailing.
+	 */
+	ret = pipeline_syscall(nr, regs);
+	if (ret > 0) {	/* out-of-band, bail out. */
+		instrumentation_end();
+		hard_local_irq_disable();
+		return;
+	}
+	if (ret < 0)	/* in-band, tail work only. */
+		goto done;
+
 	ti = current_thread_info();
 	if (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)
 		nr = syscall_trace_enter(regs);
@@ -420,7 +454,8 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 		regs->ax = x32_sys_call_table[nr](regs);
 #endif
 	}
-
+done:
+	 /* Dovetail: may switch oob on RETUSER! */
 	__syscall_return_slowpath(regs);
 
 	instrumentation_end();
@@ -638,7 +673,6 @@ struct rcu_exit_state noinstr idtentry_enter_cond_rcu(struct pt_regs *regs)
 			stall_inband_nocheck();
 			stall = IDTENTRY_INBAND_STALLED;
 		}
-		check_user_regs(regs);
 		enter_from_user_mode();
 		check_user_regs(regs);
 		return rcu_exit_code(stall);
