@@ -88,7 +88,7 @@ static inline int arch_enable_oob_stage(void)
 	return 0;
 }
 
-unsigned long pipelined_fault_entry(struct pt_regs *regs);
+unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs);
 
 void pipelined_fault_exit(unsigned long combo);
 
@@ -127,7 +127,7 @@ static inline notrace unsigned long arch_local_irq_save(void)
 }
 
 static inline
-unsigned long pipelined_fault_entry(struct pt_regs *regs)
+unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
 {
 	return 0;
 }

@@ -1549,7 +1549,7 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code, unsigned long addr
 	enum ctx_state prev_state;
 	unsigned long flags;
 
-	flags = pipelined_fault_entry(regs);
+	flags = pipelined_fault_entry(X86_TRAP_PF, regs);
 
 	prev_state = exception_enter();
 	trace_page_fault_entries(regs, error_code, address);
