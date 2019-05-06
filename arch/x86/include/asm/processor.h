@@ -561,8 +561,12 @@ static inline void arch_thread_struct_whitelist(unsigned long *offset,
  */
 #define TS_COMPAT		0x0002	/* 32bit syscall active (64BIT)*/
 #define TS_OOB			0x0004	/* Thread is running out-of-band */
+#define TS_DOVETAIL		0x0008  /* Dovetail notifier enabled */
+#define TS_OFFSTAGE		0x0010	/* Thread is in-flight to OOB context */
 
 #define _TLF_OOB		TS_OOB
+#define _TLF_DOVETAIL		TS_DOVETAIL
+#define _TLF_OFFSTAGE		TS_OFFSTAGE
 
 static inline void
 native_load_sp0(unsigned long sp0)
