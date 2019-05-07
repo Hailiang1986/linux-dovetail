@@ -1097,25 +1097,28 @@ static void fetch_register_operand(struct operand *op)
 
 static int em_fninit(struct x86_emulate_ctxt *ctxt)
 {
+	unsigned long flags;
+
 	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
 		return emulate_nm(ctxt);
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 	asm volatile("fninit");
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 	return X86EMUL_CONTINUE;
 }
 
 static int em_fnstcw(struct x86_emulate_ctxt *ctxt)
 {
+	unsigned long flags;
 	u16 fcw;
 
 	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
 		return emulate_nm(ctxt);
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 	asm volatile("fnstcw %0": "+m"(fcw));
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 
 	ctxt->dst.val = fcw;
 
@@ -1124,14 +1127,15 @@ static int em_fnstcw(struct x86_emulate_ctxt *ctxt)
 
 static int em_fnstsw(struct x86_emulate_ctxt *ctxt)
 {
+	unsigned long flags;
 	u16 fsw;
 
 	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
 		return emulate_nm(ctxt);
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 	asm volatile("fnstsw %0": "+m"(fsw));
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 
 	ctxt->dst.val = fsw;
 
@@ -4050,11 +4054,11 @@ static int em_fxsave(struct x86_emulate_ctxt *ctxt)
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 
 	rc = asm_safe("fxsave %[fx]", , [fx] "+m"(fx_state));
 
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
@@ -4088,6 +4092,7 @@ static int em_fxrstor(struct x86_emulate_ctxt *ctxt)
 	struct fxregs_state fx_state;
 	int rc;
 	size_t size;
+	unsigned long flags;
 
 	rc = check_fxsr(ctxt);
 	if (rc != X86EMUL_CONTINUE)
@@ -4098,7 +4103,7 @@ static int em_fxrstor(struct x86_emulate_ctxt *ctxt)
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 
 	if (size < __fxstate_size(16)) {
 		rc = fxregs_fixup(&fx_state, size);
@@ -4115,7 +4120,7 @@ static int em_fxrstor(struct x86_emulate_ctxt *ctxt)
 		rc = asm_safe("fxrstor %[fx]", : [fx] "m"(fx_state));
 
 out:
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 
 	return rc;
 }
@@ -5361,11 +5366,12 @@ static bool string_insn_completed(struct x86_emulate_ctxt *ctxt)
 
 static int flush_pending_x87_faults(struct x86_emulate_ctxt *ctxt)
 {
+	unsigned long flags;
 	int rc;
 
-	kvm_fpu_get();
+	flags = kvm_fpu_get();
 	rc = asm_safe("fwait");
-	kvm_fpu_put();
+	kvm_fpu_put(flags);
 
 	if (unlikely(rc != X86EMUL_CONTINUE))
 		return emulate_exception(ctxt, MF_VECTOR, 0, false);
