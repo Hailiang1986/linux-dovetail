@@ -231,12 +231,17 @@ void __weak handle_oob_trap(unsigned int trapnr, struct pt_regs *regs)
 
 void __oob_trap_notify(unsigned int exception, struct pt_regs *regs)
 {
+	unsigned long flags;
+
 	/*
 	 * We send a notification about all traps raised over a
 	 * registered oob stage only.
 	 */
-	if (dovetail_enabled)
+	if (dovetail_enabled) {
+		flags = hard_local_irq_save();
 		handle_oob_trap(exception, regs);
+		hard_local_irq_restore(flags);
+	}
 }
 
 void __weak handle_inband_event(enum inband_event_type event, void *data)
