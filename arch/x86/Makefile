@@ -198,6 +198,10 @@ sha256_ni_instr :=$(call as-instr,sha256msg1 %xmm0$(comma)%xmm1,-DCONFIG_AS_SHA2
 KBUILD_AFLAGS += $(cfi) $(cfi-sigframe) $(cfi-sections) $(asinstr) $(avx_instr) $(avx2_instr) $(avx512_instr) $(sha1_ni_instr) $(sha256_ni_instr)
 KBUILD_CFLAGS += $(cfi) $(cfi-sigframe) $(cfi-sections) $(asinstr) $(avx_instr) $(avx2_instr) $(avx512_instr) $(sha1_ni_instr) $(sha256_ni_instr)
 
+ifeq ($(CONFIG_EVL),y)
+KBUILD_CFLAGS += -Iarch/$(SRCARCH)/evl/include -Iinclude/evl
+endif
+
 KBUILD_LDFLAGS := -m elf_$(UTS_MACHINE)
 
 #
