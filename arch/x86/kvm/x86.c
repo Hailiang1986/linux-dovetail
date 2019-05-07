@@ -10039,7 +10039,9 @@ static void kvm_save_current_fpu(struct fpu *fpu)
 /* Swap (qemu) user FPU context for the guest FPU context. */
 static void kvm_load_guest_fpu(struct kvm_vcpu *vcpu)
 {
-	fpregs_lock();
+	unsigned long flags;
+
+	flags = fpregs_lock();
 
 	kvm_save_current_fpu(vcpu->arch.user_fpu);
 
@@ -10053,7 +10055,7 @@ static void kvm_load_guest_fpu(struct kvm_vcpu *vcpu)
 					~XFEATURE_MASK_PKRU);
 
 	fpregs_mark_activate();
-	fpregs_unlock();
+	fpregs_unlock(flags);
 
 	trace_kvm_fpu(1);
 }
@@ -10061,7 +10063,9 @@ static void kvm_load_guest_fpu(struct kvm_vcpu *vcpu)
 /* When vcpu_run ends, restore user space FPU context. */
 static void kvm_put_guest_fpu(struct kvm_vcpu *vcpu)
 {
-	fpregs_lock();
+	unsigned long flags;
+
+	flags = fpregs_lock();
 
 	/*
 	 * Guests with protected state can't have it read by the hypervisor,
@@ -10073,7 +10077,7 @@ static void kvm_put_guest_fpu(struct kvm_vcpu *vcpu)
 	restore_fpregs_from_fpstate(&vcpu->arch.user_fpu->state);
 
 	fpregs_mark_activate();
-	fpregs_unlock();
+	fpregs_unlock(flags);
 
 	++vcpu->stat.fpu_reload;
 	trace_kvm_fpu(0);
