@@ -8134,11 +8134,26 @@ void dovetail_resume_inband(void)
 }
 EXPORT_SYMBOL_GPL(dovetail_resume_inband);
 
-void dovetail_context_switch(struct dovetail_altsched_context *out,
-			     struct dovetail_altsched_context *in)
+bool dovetail_context_switch(struct dovetail_altsched_context *out,
+			struct dovetail_altsched_context *in,
+			bool leave_inband)
 {
 	struct task_struct *next, *prev, *last;
 	struct mm_struct *prev_mm, *next_mm;
+
+	if (leave_inband) {
+		struct task_struct *tsk = current;
+		/*
+		 * We are about to leave the current inband context
+		 * for switching to an out-of-band task, save the
+		 * preempted context information.
+		 */
+		out->task = tsk;
+		out->active_mm = tsk->active_mm;
+
+		if (IS_ENABLED(CONFIG_KVM))
+			oob_notify_kvm();
+	}
 
 	next = in->task;
 	prev = out->task;
@@ -8173,6 +8188,25 @@ void dovetail_context_switch(struct dovetail_altsched_context *out,
 		hard_irqs_disabled();
 
 	arch_dovetail_context_resume();
+
+	/*
+	 * If we entered this routine for switching to an out-of-band
+	 * task but don't have _TLF_OOB set for the current context
+	 * when resuming, this portion of code is the switch tail of
+	 * the inband schedule() routine, finalizing a transition to
+	 * the inband stage for the current task. Update the stage
+	 * level as/if required.
+	 */
+	if (unlikely(!leave_inband && !test_thread_local_flags(_TLF_OOB))) {
+		if (!IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT)) {
+			WARN_ON_ONCE(dovetail_debug() &&
+				!(preempt_count() & STAGE_MASK));
+			preempt_count_sub(STAGE_OFFSET);
+		}
+		return true;
+	}
+
+	return false;
 }
 EXPORT_SYMBOL_GPL(dovetail_context_switch);
 
