@@ -315,10 +315,10 @@ int inband_switch_tail(void)
 	 * We may run this code either over the inband or oob
 	 * contexts. If inband, we may have a thread blocked in
 	 * dovetail_leave_inband(), waiting for the co-kernel to
-	 * schedule it back in over the oob context:
+	 * schedule it back in over the oob context, in which case
 	 * finalize_oob_transition() should take care of it. If oob,
 	 * the co-kernel just switched us back, and we may update the
-	 * context markers.
+	 * context markers before returning to context_switch().
 	 *
 	 * CAUTION: The preemption count may not reflect the active
 	 * stage yet, so use the current stage pointer to determine
@@ -329,9 +329,11 @@ int inband_switch_tail(void)
 		finalize_oob_transition();
 	else {
 		set_thread_local_flags(_TLF_OOB);
-		WARN_ON_ONCE(dovetail_debug() &&
-			     (preempt_count() & STAGE_MASK));
-		preempt_count_add(STAGE_OFFSET);
+		if (!IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT)) {
+			WARN_ON_ONCE(dovetail_debug() &&
+				(preempt_count() & STAGE_MASK));
+			preempt_count_add(STAGE_OFFSET);
+		}
 	}
 
 	if (inband)
