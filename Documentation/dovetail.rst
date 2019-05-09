@@ -104,25 +104,15 @@ high-priority, out-of-band context is as follows:
 .. _`in-band sleep operation`:
 2. the caller is put to interruptible sleep state (S).
 
-3. before resuming in-band operations, the next task picked by the
-   (regular kernel) scheduler on the same CPU for replacing the
-   migrating task fires :c:func:`resume_oob_task` which the
-   real-time core should override (*__weak* binding). Before the call,
-   the oob stage is stalled, interrupts are disabled in the CPU. The
-   in-band execution stage is still current though.
+3. the real-time core's implementation of :c:func:`resume_oob_task` is
+   passed a pointer to the task_struct descriptor of the migrating
+   task. This routine is expected to perform the necessary steps for
+   taking control over the task on behalf of the real-time core,
+   re-scheduling its code appropriately over the oob stage. This
+   typically involves resuming it from the `out-of-band suspended
+   state`_ applied during the converse migration path.
 
-4. the real-time core's implementation of
-   :c:func:`resume_oob_task` is passed a pointer to the
-   task_struct descriptor of the migrating task. This routine is expected
-   to perform the necessary steps for taking control over the task on
-   behalf of the real-time core, re-scheduling its code appropriately
-   over the oob stage. This typically involves resuming it from the
-   `out-of-band suspended state`_ applied during the converse migration
-   path. The real-time core is expected to call :c:func:`dovetail_resume_oob`
-   before transitioning from the inband task context its preempts to any
-   out-of-band thread.
-
-5. at some point later, when the migrated task is picked by the
+4. at some point later, when the migrated task is picked by the
    real-time scheduler, it resumes execution on the oob stage with the
    register file previously saved by the kernel scheduler in
    :c:func:`switch_to` at step 1.

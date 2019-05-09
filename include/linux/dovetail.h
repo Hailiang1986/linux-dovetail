@@ -156,22 +156,6 @@ void dovetail_stop_altsched(void);
 
 __must_check int dovetail_leave_inband(void);
 
-static inline			/* hard IRQs off */
-void dovetail_resume_oob(struct dovetail_altsched_context *outgoing)
-{
-	struct task_struct *tsk = current;
-	/*
-	 * We are about to leave the current inband context for
-	 * switching to an out-of-band task, save the preempted
-	 * context information.
-	 */
-	outgoing->task = tsk;
-	outgoing->active_mm = tsk->active_mm;
-
-	if (IS_ENABLED(CONFIG_KVM))
-		oob_notify_kvm();
-}
-
 static inline void dovetail_leave_oob(void)
 {
 	clear_thread_local_flags(_TLF_OOB|_TLF_OFFSTAGE);
@@ -180,8 +164,9 @@ static inline void dovetail_leave_oob(void)
 
 void dovetail_resume_inband(void);
 
-void dovetail_context_switch(struct dovetail_altsched_context *out,
-			     struct dovetail_altsched_context *in);
+bool dovetail_context_switch(struct dovetail_altsched_context *out,
+			struct dovetail_altsched_context *in,
+			bool leave_inband);
 
 static inline
 struct oob_thread_state *dovetail_current_state(void)
