@@ -211,7 +211,9 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	 * default idle routine instead. If the co-kernel cannot bear
 	 * with the latency induced by the default idling operation,
 	 * then CPUIDLE is not usable and should be disabled at build
-	 * time.
+	 * time. The inband stage is stalled on entry,
+	 * irq_cpuidle_enter() additionally returns with hard irqs
+	 * off.
 	 */
 	if (!irq_cpuidle_enter(dev, target_state)) {
 		default_idle_call();
