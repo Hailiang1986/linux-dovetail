@@ -19,7 +19,6 @@
 static inline void arch_dovetail_switch_prepare(bool leave_inband)
 { }
 
-static inline void arch_dovetail_switch_finish(bool leave_inband)
-{ }
+void arch_dovetail_switch_finish(bool enter_inband);
 
 #endif /* _ASM_ARM64_DOVETAIL_H */
