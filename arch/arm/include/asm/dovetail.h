@@ -19,7 +19,10 @@
 
 #ifndef __ASSEMBLY__
 
-static inline void arch_dovetail_context_resume(void)
+static inline void arch_dovetail_switch_prepare(bool leave_inband)
+{ }
+
+static inline void arch_dovetail_switch_finish(bool enter_inband)
 { }
 
 #endif
