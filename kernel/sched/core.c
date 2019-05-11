@@ -8044,6 +8044,7 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 {
 	struct task_struct *next, *prev, *last;
 	struct mm_struct *prev_mm, *next_mm;
+	bool inband = false;
 
 	if (leave_inband) {
 		struct task_struct *tsk = current;
@@ -8058,6 +8059,8 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 		if (IS_ENABLED(CONFIG_KVM))
 			oob_notify_kvm();
 	}
+
+	arch_dovetail_switch_prepare(leave_inband);
 
 	next = in->task;
 	prev = out->task;
@@ -8091,8 +8094,6 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 	if (check_hard_irqs_disabled())
 		hard_irqs_disabled();
 
-	arch_dovetail_context_resume();
-
 	/*
 	 * If we entered this routine for switching to an out-of-band
 	 * task but don't have _TLF_OOB set for the current context
@@ -8107,10 +8108,12 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 				!(preempt_count() & STAGE_MASK));
 			preempt_count_sub(STAGE_OFFSET);
 		}
-		return true;
+		inband = true;
 	}
 
-	return false;
+	arch_dovetail_switch_finish(leave_inband);
+
+	return inband;
 }
 EXPORT_SYMBOL_GPL(dovetail_context_switch);
 
