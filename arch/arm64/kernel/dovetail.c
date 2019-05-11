@@ -6,7 +6,7 @@
 #include <linux/dovetail.h>
 #include <asm/fpsimd.h>
 
-void arch_dovetail_context_resume(void)
+void arch_dovetail_switch_finish(bool enter_inband)
 {
 	fpsimd_restore_current_oob();
 }
