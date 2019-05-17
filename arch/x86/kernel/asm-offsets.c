@@ -12,6 +12,7 @@
 #include <linux/hardirq.h>
 #include <linux/suspend.h>
 #include <linux/kbuild.h>
+#include <linux/irqstage.h>
 #include <asm/processor.h>
 #include <asm/thread_info.h>
 #include <asm/sigframe.h>
@@ -43,7 +44,9 @@ static void __used common(void)
 
 #ifdef CONFIG_IRQ_PIPELINE
 	BLANK();
-	DEFINE(OOB_stage_mask, STAGE_MASK);
+	DEFINE(oob_preempt_mask, STAGE_MASK);
+	DEFINE(inband_stall_mask, BIT(STAGE_STALL_BIT));
+	OFFSET(inband_stage_status, irq_pipeline_data, stages[0].status);
 #endif
 
 	BLANK();
