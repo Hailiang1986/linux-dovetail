@@ -731,7 +731,7 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 	   unsigned long address, int signal, int si_code)
 {
 	struct task_struct *tsk = current;
-	unsigned long flags;
+	unsigned long flags, entry_flags = 0;
 	int sig;
 
 	if (user_mode(regs)) {
@@ -750,7 +750,7 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		 * the below recursive fault logic only apply to a faults from
 		 * task context.
 		 */
-		if (in_interrupt())
+		if (running_inband() && in_interrupt())
 			return;
 
 		/*
@@ -760,10 +760,19 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		 * faulting through the emulate_vsyscall() logic.
 		 */
 		if (current->thread.sig_on_uaccess_err && signal) {
+			/*
+			 * If !user_mode(regs), we did not notify the
+			 * pipeline about this fault, do this now
+			 * before we (re-enter inband code.
+			 */
+			entry_flags = pipelined_fault_entry(X86_TRAP_PF, regs);
+
 			set_signal_archinfo(address, error_code);
 
 			/* XXX: hwpoison faults will set the wrong code. */
 			force_sig_fault(signal, si_code, (void __user *)address);
+
+			pipelined_fault_exit(entry_flags);
 		}
 
 		/*
@@ -821,6 +830,14 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		return;
 
 	/*
+	 * The odds we can survive to this PF over an out-of-band
+	 * context are pretty high, but if a companion core is
+	 * present, we want to let it know so it might try desperate
+	 * fixups as well.
+	 */
+	entry_flags = pipelined_fault_entry(X86_TRAP_PF, regs);
+
+	/*
 	 * Buggy firmware could access regions which might page fault, try to
 	 * recover from such faults.
 	 */
@@ -847,6 +864,9 @@ oops:
 	printk(KERN_DEFAULT "CR2: %016lx\n", address);
 
 	oops_end(flags, regs, sig);
+
+	if (!user_mode(regs))
+		pipelined_fault_exit(entry_flags);
 }
 
 /*
@@ -1517,6 +1537,8 @@ static noinline void
 __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		unsigned long address)
 {
+	unsigned long flags;
+
 	prefetchw(&current->mm->mmap_sem);
 
 	if (unlikely(kmmio_fault(regs, address)))
@@ -1525,8 +1547,11 @@ __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address)))
 		do_kern_addr_fault(regs, hw_error_code, address);
-	else
+	else {
+		flags = pipelined_fault_entry(X86_TRAP_PF, regs);
 		do_user_addr_fault(regs, hw_error_code, address);
+		pipelined_fault_exit(flags);
+	}
 }
 NOKPROBE_SYMBOL(__do_page_fault);
 
@@ -1547,16 +1572,11 @@ dotraplinkage void
 do_page_fault(struct pt_regs *regs, unsigned long error_code, unsigned long address)
 {
 	enum ctx_state prev_state;
-	unsigned long flags;
-
-	flags = pipelined_fault_entry(X86_TRAP_PF, regs);
 
 	prev_state = exception_enter();
 	trace_page_fault_entries(regs, error_code, address);
 	__do_page_fault(regs, error_code, address);
 	exception_exit(prev_state);
-
-	pipelined_fault_exit(flags);
 }
 NOKPROBE_SYMBOL(do_page_fault);
 
