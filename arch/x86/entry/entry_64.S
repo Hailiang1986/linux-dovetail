@@ -1428,12 +1428,15 @@ ENTRY(error_exit)
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	TRACE_IRQS_OFF
 #ifdef CONFIG_IRQ_PIPELINE
-	testl	$OOB_stage_mask, PER_CPU_VAR(__preempt_count)
-	jz	1f
+	testl	$oob_preempt_mask, PER_CPU_VAR(__preempt_count)
+	jnz	1f
+	testl	$inband_stall_mask, PER_CPU_VAR(irq_pipeline + inband_stage_status)
+	jz	2f
+1:
 	testb	$3, CS(%rsp)
 	jz	retint_kernel_early
 	jmp	retint_user_early
-1:
+2:
 #endif
 	testb	$3, CS(%rsp)
 	jz	retint_kernel
