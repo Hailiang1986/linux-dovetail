@@ -202,6 +202,8 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 	struct thread_info *ti = current_thread_info();
 	u32 cached_flags;
 
+	WARN_ON_ONCE(irq_pipeline_debug() && running_oob());
+
 	addr_limit_user_check();
 
 	lockdep_assert_irqs_disabled();
