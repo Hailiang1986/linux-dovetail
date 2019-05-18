@@ -40,7 +40,11 @@ static void __used common(void)
 	BLANK();
 	OFFSET(TASK_TI_status, task_struct, thread_info.status);
 	OFFSET(TASK_addr_limit, task_struct, thread.addr_limit);
-	DEFINE(TASK_oob_mask, STAGE_MASK);
+
+#ifdef CONFIG_IRQ_PIPELINE
+	BLANK();
+	DEFINE(OOB_stage_mask, STAGE_MASK);
+#endif
 
 	BLANK();
 	OFFSET(crypto_tfm_ctx_offset, crypto_tfm, __crt_ctx);
