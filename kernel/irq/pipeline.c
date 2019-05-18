@@ -1178,7 +1178,7 @@ respin:
  *      the current stage accordingly if needed. The escalated call is
  *      allowed to perform a stage migration in the process.
  */
-int run_oob_call(int (*fn)(void *arg), void *arg)
+int notrace run_oob_call(int (*fn)(void *arg), void *arg)
 {
 	struct irq_stage_data *p, *old;
 	struct irq_stage *oob;
