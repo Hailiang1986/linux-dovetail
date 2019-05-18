@@ -579,10 +579,11 @@ ENTRY(interrupt_entry)
 
 1:
 	ENTER_IRQ_STACK old_rsp=%rdi save_ret=1
-	/* We entered an interrupt context - irqs are off unless
-	   pipelining is enabled, in which case we defer tracing until
-	   __ipipe_do_sync_stage() where the virtual IRQ state is
-	   updated for the root stage. */
+	/*
+	 * We entered an interrupt context - irqs are off unless
+	 * pipelining is enabled, in which case we defer tracing until
+	 * sync_current_stage() is called from the inband stage.
+	 */
 #ifndef CONFIG_IRQ_PIPELINE
 	TRACE_IRQS_OFF
 #endif
@@ -1426,6 +1427,14 @@ ENTRY(error_exit)
 	UNWIND_HINT_REGS
 	DISABLE_INTERRUPTS(CLBR_ANY)
 	TRACE_IRQS_OFF
+#ifdef CONFIG_IRQ_PIPELINE
+	testl	$OOB_stage_mask, PER_CPU_VAR(__preempt_count)
+	jz	1f
+	testb	$3, CS(%rsp)
+	jz	retint_kernel_early
+	jmp	retint_user_early
+1:
+#endif
 	testb	$3, CS(%rsp)
 	jz	retint_kernel
 	jmp	retint_user
