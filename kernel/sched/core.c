@@ -4424,7 +4424,7 @@ EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 #endif /* CONFIG_PREEMPTION */
 
 #ifdef CONFIG_IRQ_PIPELINE
-static inline void preempt_sync_inband_irqs(unsigned long flags)
+static inline void preempt_sync_inband_irqs(void)
 {
 	struct irq_stage_data *p;
 
@@ -4436,12 +4436,13 @@ static inline void preempt_sync_inband_irqs(unsigned long flags)
 		clear_stage_bit(STAGE_STALL_BIT, p);
 		sync_current_stage();
 		preempt_enable_no_resched_notrace();
-	}
-	/* We leave IRQs hard disabled. */
-	inband_irq_restore_nosync(flags);
+	} else
+		clear_stage_bit(STAGE_STALL_BIT, p);
+
+	/* hard IRQs are left disabled. */
 }
 #else
-static inline void preempt_sync_inband_irqs(unsigned long flags) { }
+static inline void preempt_sync_inband_irqs(void) { }
 #endif
 
 /*
@@ -4453,11 +4454,14 @@ static inline void preempt_sync_inband_irqs(unsigned long flags) { }
 asmlinkage __visible void __sched preempt_schedule_irq(void)
 {
 	enum ctx_state prev_state;
-	unsigned long flags;
 
 	if (irqs_pipelined()) {
-		WARN_ON_ONCE(!hard_irqs_disabled());
-		local_irq_save(flags);
+		if (irq_pipeline_debug()) {
+			WARN_ON_ONCE(!running_inband());
+			WARN_ON_ONCE(!hard_irqs_disabled());
+			WARN_ON_ONCE(irqs_disabled());
+		}
+		local_irq_disable();
 		hard_local_irq_enable();
 	}
 
@@ -4481,7 +4485,7 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 	 * need_resched is clear, so we just need to synchronize the
 	 * in-band stage log.
 	 */
-	preempt_sync_inband_irqs(flags);
+	preempt_sync_inband_irqs();
 
 	exception_exit(prev_state);
 }
