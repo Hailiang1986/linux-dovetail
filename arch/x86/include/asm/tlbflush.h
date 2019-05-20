@@ -295,7 +295,7 @@ static inline void __cr4_set(unsigned long cr4)
 /* Set in this cpu's CR4. */
 static inline void cr4_set_bits_irqsoff(unsigned long mask)
 {
-	unsigned long cr4, flags
+	unsigned long cr4, flags;
 
 	flags = hard_local_irq_save();
 	cr4 = this_cpu_read(cpu_tlbstate.cr4);
@@ -410,6 +410,8 @@ static inline void invalidate_user_asid(u16 asid)
  */
 static inline void __native_flush_tlb(void)
 {
+	unsigned long flags;
+
 	/*
 	 * Preemption or interrupts must be disabled to protect the access
 	 * to the per CPU variable and to prevent being preempted between
@@ -417,10 +419,14 @@ static inline void __native_flush_tlb(void)
 	 */
 	WARN_ON_ONCE(preemptible());
 
+	flags = hard_cond_local_irq_save();
+
 	invalidate_user_asid(this_cpu_read(cpu_tlbstate.loaded_mm_asid));
 
 	/* If current->mm == NULL then the read_cr3() "borrows" an mm */
 	native_write_cr3(__native_read_cr3());
+
+	hard_cond_local_irq_restore(flags);
 }
 
 /*
