@@ -916,7 +916,7 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		/*
 		 * It's possible to have interrupts off here:
 		 */
-		hard_local_irq_enable();
+		local_irq_enable_full();
 
 		/*
 		 * Valid to do another page fault here because this one came
@@ -1378,11 +1378,11 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * potential system fault or CPU buglet:
 	 */
 	if (user_mode(regs)) {
-		hard_local_irq_enable();
+		local_irq_enable_full();
 		flags |= FAULT_FLAG_USER;
 	} else {
 		if (regs->flags & X86_EFLAGS_IF)
-			hard_local_irq_enable();
+			local_irq_enable_full();
 	}
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
