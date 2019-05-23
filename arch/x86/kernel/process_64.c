@@ -617,6 +617,7 @@ static long prctl_map_vdso(const struct vdso_image *image, unsigned long addr)
 
 long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 {
+	unsigned long flags;
 	int ret = 0;
 
 	switch (option) {
@@ -624,7 +625,7 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 		if (unlikely(arg2 >= TASK_SIZE_MAX))
 			return -EPERM;
 
-		preempt_disable();
+		flags = hard_preempt_disable();
 		/*
 		 * ARCH_SET_GS has always overwritten the index
 		 * and the base. Zero is the most sensible value
@@ -645,7 +646,7 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 			task->thread.gsindex = 0;
 			x86_gsbase_write_task(task, arg2);
 		}
-		preempt_enable();
+		hard_preempt_enable(flags);
 		break;
 	}
 	case ARCH_SET_FS: {
@@ -656,7 +657,7 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 		if (unlikely(arg2 >= TASK_SIZE_MAX))
 			return -EPERM;
 
-		preempt_disable();
+		flags = hard_preempt_disable();
 		/*
 		 * Set the selector to 0 for the same reason
 		 * as %gs above.
@@ -674,7 +675,7 @@ long do_arch_prctl_64(struct task_struct *task, int option, unsigned long arg2)
 			task->thread.fsindex = 0;
 			x86_fsbase_write_task(task, arg2);
 		}
-		preempt_enable();
+		hard_preempt_enable(flags);
 		break;
 	}
 	case ARCH_GET_FS: {
