@@ -582,7 +582,7 @@ ENTRY(interrupt_entry)
 	/*
 	 * We entered an interrupt context - irqs are off unless
 	 * pipelining is enabled, in which case we defer tracing until
-	 * sync_current_stage() is called from the inband stage.
+	 * sync_current_irq_stage() is called from the inband stage.
 	 */
 #ifndef CONFIG_IRQ_PIPELINE
 	TRACE_IRQS_OFF
