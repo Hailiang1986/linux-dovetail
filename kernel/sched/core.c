@@ -4434,7 +4434,7 @@ static inline void preempt_sync_inband_irqs(void)
 		preempt_disable();
 		trace_hardirqs_on();
 		clear_stage_bit(STAGE_STALL_BIT, p);
-		sync_current_stage();
+		sync_current_irq_stage();
 		preempt_enable_no_resched_notrace();
 	} else
 		clear_stage_bit(STAGE_STALL_BIT, p);
