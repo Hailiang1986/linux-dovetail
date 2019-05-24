@@ -59,7 +59,7 @@ void dump_stack_print_info(const char *log_lvl)
 
 #ifdef CONFIG_IRQ_PIPELINE
 	printk("%sIRQ stage: %s\n",
-	       log_lvl, current_stage->name);
+	       log_lvl, current_irq_stage->name);
 #endif
 
 	print_worker_info(log_lvl, current);
