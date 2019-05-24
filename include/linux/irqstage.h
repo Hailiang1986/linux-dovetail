@@ -116,19 +116,19 @@ static inline struct irq_stage_data *this_oob_staged(void)
 }
 
 /**
- * __current_staged() - return the address of the pipeline
+ * __current_irq_staged() - return the address of the pipeline
  * context data of the stage running on the current CPU. CPU migration
  * must be disabled.
  */
-static inline struct irq_stage_data *__current_staged(void)
+static inline struct irq_stage_data *__current_irq_staged(void)
 {
 	return &raw_cpu_ptr(irq_pipeline.stages)[raw_cpu_read(irq_pipeline.__curr)];
 }
 
-#define current_staged __current_staged()
+#define current_irq_staged __current_irq_staged()
 
 static inline
-void __set_current_staged(struct irq_stage_data *pd)
+void __set_current_irq_staged(struct irq_stage_data *pd)
 {
 	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
@@ -155,7 +155,7 @@ void __set_current_staged(struct irq_stage_data *pd)
 static inline
 void switch_oob(struct irq_stage_data *pd)
 {
-	__set_current_staged(pd);
+	__set_current_irq_staged(pd);
 	if (!(preempt_count() & STAGE_MASK))
 		preempt_count_add(STAGE_OFFSET);
 }
@@ -163,13 +163,13 @@ void switch_oob(struct irq_stage_data *pd)
 static inline
 void switch_inband(struct irq_stage_data *pd)
 {
-	__set_current_staged(pd);
+	__set_current_irq_staged(pd);
 	if (preempt_count() & STAGE_MASK)
 		preempt_count_sub(STAGE_OFFSET);
 }
 
 static inline
-void set_current_staged(struct irq_stage_data *pd)
+void set_current_irq_staged(struct irq_stage_data *pd)
 {
 	if (pd->stage == &inband_stage)
 		switch_inband(pd);
@@ -177,17 +177,17 @@ void set_current_staged(struct irq_stage_data *pd)
 		switch_oob(pd);
 }
 
-static inline struct irq_stage *__current_stage(void)
+static inline struct irq_stage *__current_irq_stage(void)
 {
 	/*
 	 * We don't have to hard disable irqs while accessing the
 	 * per-CPU stage data here, because there is no way we could
 	 * change stages while migrating CPUs.
 	 */
-	return __current_staged()->stage;
+	return __current_irq_staged()->stage;
 }
 
-#define current_stage	__current_stage()
+#define current_irq_stage	__current_irq_stage()
 
 static inline bool oob_stage_present(void)
 {
@@ -204,9 +204,9 @@ static inline int stage_irqs_pending(struct irq_stage_data *pd)
 	return pd->log.himap != 0;
 }
 
-void sync_current_stage(void);
+void sync_current_irq_stage(void);
 
-void sync_stage(struct irq_stage *top);
+void sync_irq_stage(struct irq_stage *top);
 
 void irq_post_stage(struct irq_stage *stage,
 		    unsigned int irq);
