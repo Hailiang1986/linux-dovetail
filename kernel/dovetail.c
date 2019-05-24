@@ -112,12 +112,12 @@ int __pipeline_syscall(struct thread_info *ti, struct pt_regs *regs)
 		return 0;
 
 	flags = hard_local_irq_save();
-	caller_stage = current_stage;
-	this_context = current_staged;
+	caller_stage = current_irq_stage;
+	this_context = current_irq_staged;
 	target_stage = &oob_stage;
 next:
 	p = this_staged(target_stage);
-	set_current_staged(p);
+	set_current_irq_staged(p);
 	hard_local_irq_restore(flags);
 	ret = handle_pipelined_syscall(caller_stage, regs);
 	flags = hard_local_irq_save();
@@ -132,11 +132,11 @@ next:
 	 * - if no stage migration happened, switch back to the
 	 * initial caller's stage, on a possibly different CPU though.
 	 */
-	if (current_stage != target_stage)
-		this_context = current_staged;
+	if (current_irq_stage != target_stage)
+		this_context = current_irq_staged;
 	else {
 		p = this_staged(this_context->stage);
-		set_current_staged(p);
+		set_current_irq_staged(p);
 	}
 
 	if (this_context->stage == &inband_stage) {
@@ -146,7 +146,7 @@ next:
 		}
 		p = this_inband_staged();
 		if (stage_irqs_pending(p))
-			sync_current_stage();
+			sync_current_irq_stage();
 	} else if (test_ti_thread_flag(ti, TIF_MAYDAY))
 		call_mayday(ti, regs);
 
@@ -164,7 +164,7 @@ void sync_inband_irqs(void)
 
 	p = this_inband_staged();
 	if (stage_irqs_pending(p))
-		sync_current_stage();
+		sync_current_irq_stage();
 
 	hard_local_irq_restore(flags);
 }
@@ -293,7 +293,7 @@ static void finalize_oob_transition(void) /* hard IRQs off */
 	clear_stage_bit(STAGE_STALL_BIT, p);
 	if (stage_irqs_pending(p))
 		/* Current stage (in-band) != p->stage (oob). */
-		sync_stage(p->stage);
+		sync_irq_stage(p->stage);
 }
 
 void oob_trampoline(void)
@@ -324,7 +324,7 @@ int inband_switch_tail(void)
 	 * stage yet, so use the current stage pointer to determine
 	 * which one we are on.
 	 */
-	inband = current_stage == &inband_stage;
+	inband = current_irq_stage == &inband_stage;
 	if (inband)
 		finalize_oob_transition();
 	else {
