@@ -535,16 +535,23 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 	 *                   wants us to catch up to.
 	 */
 	struct mm_struct *loaded_mm = this_cpu_read(cpu_tlbstate.loaded_mm);
-	u32 loaded_mm_asid = this_cpu_read(cpu_tlbstate.loaded_mm_asid);
-	u64 mm_tlb_gen = atomic64_read(&loaded_mm->context.tlb_gen);
-	u64 local_tlb_gen = this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].tlb_gen);
+	u64 mm_tlb_gen, local_tlb_gen;
+	u32 loaded_mm_asid;
 	unsigned long flags;
 
 	/* This code cannot presently handle being reentered. */
 	VM_WARN_ON(!irqs_disabled());
 
-	if (unlikely(loaded_mm == &init_mm))
+	protect_inband_mm(flags);
+
+	loaded_mm_asid = this_cpu_read(cpu_tlbstate.loaded_mm_asid);
+	mm_tlb_gen = atomic64_read(&loaded_mm->context.tlb_gen);
+	local_tlb_gen = this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].tlb_gen);
+
+	if (unlikely(loaded_mm == &init_mm)) {
+		unprotect_inband_mm(flags);
 		return;
+	}
 
 	VM_WARN_ON(this_cpu_read(cpu_tlbstate.ctxs[loaded_mm_asid].ctx_id) !=
 		   loaded_mm->context.ctx_id);
@@ -559,7 +566,6 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 		 * This should be rare, with native_flush_tlb_others skipping
 		 * IPIs to lazy TLB mode CPUs.
 		 */
-		protect_inband_mm(flags);
 		switch_mm_irqs_off(NULL, &init_mm, NULL);
 		unprotect_inband_mm(flags);
 		return;
@@ -572,12 +578,15 @@ static void flush_tlb_func_common(const struct flush_tlb_info *f,
 		 * be handled can catch us all the way up, leaving no work for
 		 * the second flush.
 		 */
+		unprotect_inband_mm(flags);
 		trace_tlb_flush(reason, 0);
 		return;
 	}
 
 	WARN_ON_ONCE(local_tlb_gen > mm_tlb_gen);
 	WARN_ON_ONCE(f->new_tlb_gen > mm_tlb_gen);
+
+	unprotect_inband_mm(flags);
 
 	/*
 	 * If we get to this point, we know that our TLB is out of date.
