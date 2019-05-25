@@ -1026,9 +1026,15 @@ static ssize_t lineevent_oob_read(struct file *filep,
 		raw_spin_lock_irqsave(&le->oob_state.lock, flags);
 
 		ret = kfifo_get(&le->events, &ge);
-		if (!ret)
+		if (!ret) {
 			evl_clear_poll_events(&le->oob_state.poll_head,
 					POLLIN|POLLRDNORM);
+			/*
+			 * This works around a false positive enabling
+			 * -Wmaybe-uninitialized w/ gcc 8.3.1.
+			 */
+			ret = 0;
+		}
 
 		raw_spin_unlock_irqrestore(&le->oob_state.lock, flags);
 
