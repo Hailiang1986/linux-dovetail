@@ -73,6 +73,7 @@ extern struct irq_domain *synthetic_irq_domain;
 #else /* !CONFIG_IRQ_PIPELINE */
 
 #include <linux/irqstage.h>
+#include <asm/irq_pipeline.h>
 
 static inline
 void irq_pipeline_init_early(void) { }
