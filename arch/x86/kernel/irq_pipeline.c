@@ -79,6 +79,8 @@ void irq_pipeline_send_remote(unsigned int ipi,
 }
 EXPORT_SYMBOL_GPL(irq_pipeline_send_remote);
 
+void uv_bau_message_interrupt(struct pt_regs *regs);
+
 static void do_apic_irq(unsigned int irq, struct pt_regs *regs)
 {
 	int vector = apicm_irq_vector(irq);
@@ -138,7 +140,7 @@ static void do_apic_irq(unsigned int irq, struct pt_regs *regs)
 	case HYPERV_REENLIGHTENMENT_VECTOR:
 		hyperv_reenlightenment_intr(regs);
 		break;
-	case HYPERV_STIMER0_VECTOR
+	case HYPERV_STIMER0_VECTOR:
 		hv_stimer0_vector_handler(regs);
 		break;
 #endif
