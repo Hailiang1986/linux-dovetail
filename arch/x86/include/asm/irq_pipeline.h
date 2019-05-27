@@ -32,6 +32,8 @@ unsigned long arch_irqs_native_to_virtual_flags(unsigned long flags)
 	return hard_irqs_disabled_flags(flags) << X86_EFLAGS_SS_BIT;
 }
 
+#ifndef CONFIG_PARAVIRT_XXL
+
 static inline notrace unsigned long arch_local_irq_save(void)
 {
 	int stalled = inband_irq_save();
@@ -63,6 +65,8 @@ static inline notrace void arch_local_irq_restore(unsigned long flags)
 	inband_irq_restore(native_irqs_disabled_flags(flags));
 	barrier();
 }
+
+#endif /* !CONFIG_PARAVIRT_XXL */
 
 static inline
 void arch_save_timer_regs(struct pt_regs *dst,
@@ -96,6 +100,8 @@ void pipelined_fault_exit(unsigned long combo);
 
 struct pt_regs;
 
+#ifndef CONFIG_PARAVIRT_XXL
+
 static inline notrace unsigned long arch_local_save_flags(void)
 {
 	return native_save_fl();
@@ -125,6 +131,8 @@ static inline notrace unsigned long arch_local_irq_save(void)
 	arch_local_irq_disable();
 	return flags;
 }
+
+#endif /* !CONFIG_PARAVIRT_XXL */
 
 static inline
 unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
