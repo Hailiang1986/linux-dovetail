@@ -14,6 +14,7 @@
 
 #include <linux/context_tracking.h>
 #include <linux/interrupt.h>
+#include <linux/irq_pipeline.h>
 #include <linux/kallsyms.h>
 #include <linux/spinlock.h>
 #include <linux/kprobes.h>
