@@ -179,6 +179,13 @@ void show_pte(const char *lvl, struct mm_struct *mm, unsigned long addr)
 	pr_cont("\n");
 }
 #else					/* CONFIG_MMU */
+unsigned long fault_entry(unsigned int exception, struct pt_regs *regs)
+{
+	return 0;
+}
+
+static inline void fault_exit(unsigned long combo) { }
+
 void show_pte(const char *lvl, struct mm_struct *mm, unsigned long addr)
 { }
 #endif					/* CONFIG_MMU */
