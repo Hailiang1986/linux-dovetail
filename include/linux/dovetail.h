@@ -126,7 +126,12 @@ int inband_switch_tail(void);
 
 void oob_trampoline(void);
 
+#ifdef CONFIG_KVM
 void oob_notify_kvm(void);
+#else
+static inline void oob_notify_kvm(void)
+{ }
+#endif
 
 void arch_inband_task_init(struct task_struct *p);
 
