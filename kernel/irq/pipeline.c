@@ -981,8 +981,14 @@ void copy_timer_regs(struct irq_desc *desc, struct pt_regs *regs)
  */
 int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 {
-	struct pt_regs *old_regs = set_irq_regs(regs);
-	struct irq_desc *desc = irq_to_desc(irq);
+	struct pt_regs *old_regs;
+	struct irq_desc *desc;
+	int ret = 0;
+
+	trace_irq_pipeline_entry(irq);
+
+	old_regs = set_irq_regs(regs);
+	desc = irq_to_desc(irq);
 
 	if (irq_pipeline_debug()) {
 		if (!hard_irqs_disabled()) {
@@ -993,7 +999,8 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 		if (unlikely(desc == NULL)) {
 			pr_err("IRQ pipeline: received unhandled IRQ%u\n",
 			       irq);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto out;
 		}
 	}
 
@@ -1012,7 +1019,6 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	}
 
 	copy_timer_regs(desc, regs);
-	trace_irq_pipeline_entry(irq);
 	enter_oob_irq();
 	preempt_count_add(PIPELINE_OFFSET);
 	generic_handle_irq_desc(desc);
@@ -1036,11 +1042,11 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	exit_oob_irq();
 	synchronize_pipeline_on_irq();
 	check_pending_mayday(regs);
-	trace_irq_pipeline_exit(irq);
 out:
 	set_irq_regs(old_regs);
+	trace_irq_pipeline_exit(irq);
 
-	return 0;
+	return ret;
 }
 
 bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
