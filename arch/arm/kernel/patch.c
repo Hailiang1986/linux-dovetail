@@ -17,7 +17,6 @@ struct patch {
 };
 
 #ifdef CONFIG_MMU
-static DEFINE_RAW_SPINLOCK(patch_lock);
 
 static void __kprobes *patch_map(void *addr, int fixmap, unsigned long *flags)
 {
