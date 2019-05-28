@@ -89,11 +89,8 @@ unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 	int nosync = 1;
 
 	/*
-	 * CAUTION: The co-kernel might demote the current context to
-	 * the in-band stage as a result of handling this trap,
-	 * returning with hard irqs on. Do not propagate SEA traps to
-	 * the co-kernel in NMI mode, there is nothing it could do
-	 * about it.
+	 * Do not propagate SEA traps to the out-of-band handler in
+	 * NMI mode, there is nothing it could do about it.
 	 */
 	if (likely(exception != ARM64_TRAP_SEA || interrupts_enabled(regs)))
 		oob_trap_notify(exception, regs);
