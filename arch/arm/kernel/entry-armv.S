@@ -496,6 +496,18 @@ ENDPROC(__irq_usr)
 __und_usr:
 	usr_entry uaccess=0
 
+#ifdef CONFIG_DOVETAIL
+	get_thread_info tsk
+	ldr	r0, [tsk, #TI_PREEMPT]		@ get preempt count
+	tst	r0, #TI_OOB_MASK		@ oob stage?
+	beq	1f
+	mov	r0, #ARM_TRAP_UNDEFINSTR
+	mov	r1, sp				@ r1 = &regs
+	bl	__oob_trap_notify
+	uaccess_enable ip
+1:
+#endif
+
 	mov	r2, r4
 	mov	r3, r5
 
