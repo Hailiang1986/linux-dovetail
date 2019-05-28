@@ -236,6 +236,11 @@ void __oob_trap_notify(unsigned int exception, struct pt_regs *regs)
 	/*
 	 * We send a notification about all traps raised over a
 	 * registered oob stage only.
+	 *
+	 * CAUTION: The out-of-band trap handler expects hard irqs off
+	 * on entry, and might demote the current context to the
+	 * in-band stage, returning with hard irqs on. So we have to
+	 * protect the call accordingly.
 	 */
 	if (dovetail_enabled) {
 		flags = hard_local_irq_save();
