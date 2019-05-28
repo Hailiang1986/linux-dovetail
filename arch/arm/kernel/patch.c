@@ -16,7 +16,7 @@ struct patch {
 	unsigned int insn;
 };
 
-static DEFINE_RAW_SPINLOCK(patch_lock);
+static DEFINE_HARD_SPINLOCK(patch_lock);
 
 static void __kprobes *patch_map(void *addr, int fixmap, unsigned long *flags)
 	__acquires(&patch_lock)
