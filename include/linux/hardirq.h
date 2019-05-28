@@ -92,6 +92,11 @@ extern void irq_exit(void);
 		irq_pipeline_nmi_exit();			\
 	} while (0)
 
+static inline bool start_irq_flow(void)
+{
+	return !irqs_pipelined() || in_pipeline();
+}
+
 static inline bool on_pipeline_entry(void)
 {
 	return irqs_pipelined() && in_pipeline();
