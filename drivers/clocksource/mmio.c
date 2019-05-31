@@ -57,14 +57,14 @@ u64 clocksource_mmio_readw_down(struct clocksource *c)
 }
 
 static inline struct clocksource_user_mmio *
-to_user_mmio_clksrc(struct clocksource *c)
+to_mmio_ucs(struct clocksource *c)
 {
 	return container_of(c, struct clocksource_user_mmio, mmio.clksrc);
 }
 
 u64 clocksource_dual_mmio_readl_up(struct clocksource *c)
 {
-	struct clocksource_user_mmio *ucs = to_user_mmio_clksrc(c);
+	struct clocksource_user_mmio *ucs = to_mmio_ucs(c);
 	u32 upper, old_upper, lower;
 
 	upper = readl_relaxed(ucs->reg_upper);
@@ -79,7 +79,7 @@ u64 clocksource_dual_mmio_readl_up(struct clocksource *c)
 
 u64 clocksource_dual_mmio_readw_up(struct clocksource *c)
 {
-	struct clocksource_user_mmio *ucs = to_user_mmio_clksrc(c);
+	struct clocksource_user_mmio *ucs = to_mmio_ucs(c);
 	u16 upper, old_upper, lower;
 
 	upper = readw_relaxed(ucs->reg_upper);
@@ -138,16 +138,47 @@ int __init clocksource_mmio_init(void __iomem *base, const char *name,
 	return err;
 }
 
-static void clksrc_vmopen(struct vm_area_struct *vma)
+static void mmio_ucs_vmopen(struct vm_area_struct *vma)
 {
-	struct clocksource_user_mapping *mapping;
+	struct clocksource_user_mapping *mapping, *clone;
+	struct clocksource_user_mmio *ucs;
+	unsigned long h_key;
 
 	mapping = vma->vm_private_data;
 
-	atomic_inc(&mapping->refs);
+	if (mapping->mm == vma->vm_mm) {
+		atomic_inc(&mapping->refs);
+	} else if (mapping->mm) {
+		/*
+		 * We must be duplicating the original mm upon fork(),
+		 * clone the parent ucs mapping struct then rehash it
+		 * on the child mm key. If we cannot get memory for
+		 * this, mitigate the issue for users by preventing a
+		 * stale parent mm from being matched later on by a
+		 * process which reused its mm_struct (h_key is based
+		 * on this struct address).
+		 */
+		clone = kmalloc(sizeof(*mapping), GFP_KERNEL);
+		if (clone == NULL) {
+			pr_alert("out-of-memory for UCS mapping!\n");
+			atomic_inc(&mapping->refs);
+			mapping->mm = NULL;
+			return;
+		}
+		ucs = mapping->ucs;
+		clone->mm = vma->vm_mm;
+		clone->ucs = ucs;
+		clone->regs = mapping->regs;
+		atomic_set(&clone->refs, 1);
+		vma->vm_private_data = clone;
+		h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
+		spin_lock(&ucs->lock);
+		hash_add(ucs->mappings, &clone->link, h_key);
+		spin_unlock(&ucs->lock);
+	}
 }
 
-static void clksrc_vmclose(struct vm_area_struct *vma)
+static void mmio_ucs_vmclose(struct vm_area_struct *vma)
 {
 	struct clocksource_user_mapping *mapping;
 
@@ -161,12 +192,12 @@ static void clksrc_vmclose(struct vm_area_struct *vma)
 	}
 }
 
-static const struct vm_operations_struct clksrc_vmops = {
-	.open = clksrc_vmopen,
-	.close = clksrc_vmclose,
+static const struct vm_operations_struct mmio_ucs_vmops = {
+	.open = mmio_ucs_vmopen,
+	.close = mmio_ucs_vmclose,
 };
 
-static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
+static int mmio_ucs_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long addr, upper_pfn, lower_pfn;
 	struct clocksource_user_mapping *mapping, *tmp;
@@ -182,30 +213,13 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 
 	vma->vm_private_data = NULL;
-	vma->vm_ops = &clksrc_vmops;
-	ucs = file->private_data;
 
+	ucs = file->private_data;
 	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
 	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
 	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
 	if (pages == 2 && (!bits_upper || upper_pfn == lower_pfn))
 		return -EINVAL;
-
-	h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
-
-	prot = pgprot_noncached(vma->vm_page_prot);
-	addr = vma->vm_start;
-
-	err = remap_pfn_range(vma, addr, lower_pfn, PAGE_SIZE, prot);
-	if (err < 0)
-		return err;
-
-	if (pages == 2) {
-		addr += PAGE_SIZE;
-		err = remap_pfn_range(vma, addr, upper_pfn, PAGE_SIZE, prot);
-		if (err < 0)
-			return err;
-	}
 
 	mapping = kmalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping)
@@ -214,34 +228,52 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 	mapping->mm = vma->vm_mm;
 	mapping->ucs = ucs;
 	mapping->regs = (void *)vma->vm_start;
+	atomic_set(&mapping->refs, 1);
+
+	vma->vm_private_data = mapping;
+	vma->vm_ops = &mmio_ucs_vmops;
+	prot = pgprot_noncached(vma->vm_page_prot);
+	addr = vma->vm_start;
+
+	err = remap_pfn_range(vma, addr, lower_pfn, PAGE_SIZE, prot);
+	if (err < 0)
+		goto fail;
+
+	if (pages > 1) {
+		addr += PAGE_SIZE;
+		err = remap_pfn_range(vma, addr, upper_pfn, PAGE_SIZE, prot);
+		if (err < 0)
+			goto fail;
+	}
+
+	h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
 
 	spin_lock(&ucs->lock);
 	hash_for_each_possible(ucs->mappings, tmp, link, h_key) {
-		if (tmp->mm != vma->vm_mm)
-			continue;
-		spin_unlock(&ucs->lock);
-
-		kfree(mapping);
-
-		return -EBUSY;
+		if (tmp->mm == vma->vm_mm) {
+			spin_unlock(&ucs->lock);
+			err = -EBUSY;
+			goto fail;
+		}
 	}
 	hash_add(ucs->mappings, &mapping->link, h_key);
 	spin_unlock(&ucs->lock);
 
-	atomic_set(&mapping->refs, 1);
-	vma->vm_private_data = mapping;
-
 	return 0;
+fail:
+	kfree(mapping);
+
+	return err;
 }
 
 static long
-user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+mmio_ucs_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct clocksource_user_mapping *mapping;
 	struct clksrc_user_mmio_info __user *u;
+	unsigned long upper_pfn, lower_pfn;
 	struct clksrc_user_mmio_info info;
 	struct clocksource_user_mmio *ucs;
-	unsigned long upper_pfn, lower_pfn;
 	unsigned int bits_upper;
 	void __user *map_base;
 	unsigned long h_key;
@@ -256,31 +288,29 @@ user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ENOTTY;
 	}
 
-	ucs = file->private_data;
-
 	h_key = (unsigned long)current->mm / sizeof(*current->mm);
 
-	size = PAGE_SIZE;
+	ucs = file->private_data;
 	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
 	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
 	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
+	size = PAGE_SIZE;
 	if (bits_upper && upper_pfn != lower_pfn)
 		size += PAGE_SIZE;
 
 	do {
 		spin_lock(&ucs->lock);
 		hash_for_each_possible(ucs->mappings, mapping, link, h_key) {
-			if (mapping->mm != current->mm)
-				continue;
-			spin_unlock(&ucs->lock);
-
-			map_base = mapping->regs;
-			goto found;
+			if (mapping->mm == current->mm) {
+				spin_unlock(&ucs->lock);
+				map_base = mapping->regs;
+				goto found;
+			}
 		}
 		spin_unlock(&ucs->lock);
 
-		map_base =
-			(void *)vm_mmap(file, 0, size, PROT_READ, MAP_SHARED, 0);
+		map_base = (void *)
+			vm_mmap(file, 0, size, PROT_READ, MAP_SHARED, 0);
 	} while (IS_ERR(map_base) && PTR_ERR(map_base) == -EBUSY);
 
 	if (IS_ERR(map_base))
@@ -300,7 +330,7 @@ found:
 	return copy_to_user(u, &info, sizeof(*u));
 }
 
-static int user_mmio_clksrc_open(struct inode *inode, struct file *file)
+static int mmio_ucs_open(struct inode *inode, struct file *file)
 {
 	struct clocksource_user_mmio *ucs;
 
@@ -313,12 +343,11 @@ static int user_mmio_clksrc_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static const struct file_operations user_mmio_clksrc_fops = {
+static const struct file_operations mmio_ucs_fops = {
 	.owner		= THIS_MODULE,
-	.unlocked_ioctl = user_mmio_clksrc_ioctl,
-	.open		= user_mmio_clksrc_open,
-	.mmap		= user_mmio_clksrc_mmap,
-
+	.unlocked_ioctl = mmio_ucs_ioctl,
+	.open		= mmio_ucs_open,
+	.mmap		= mmio_ucs_mmap,
 };
 
 static int __init
@@ -328,14 +357,14 @@ ucs_create_cdev(struct class *class, struct clocksource_user_mmio *ucs)
 
 	ucs->dev = device_create(class, NULL,
 				MKDEV(MAJOR(user_mmio_devt), ucs->id),
-				ucs, "user_mmio_clksrc/%d", ucs->id);
+				ucs, "ucs/%d", ucs->id);
 	if (IS_ERR(ucs->dev))
 		return PTR_ERR(ucs->dev);
 
 	spin_lock_init(&ucs->lock);
 	hash_init(ucs->mappings);
 
-	cdev_init(&ucs->cdev, &user_mmio_clksrc_fops);
+	cdev_init(&ucs->cdev, &mmio_ucs_fops);
 	ucs->cdev.kobj.parent = &ucs->dev->kobj;
 
 	err = cdev_add(&ucs->cdev, ucs->dev->devt, 1);
@@ -483,14 +512,14 @@ static int __init mmio_clksrc_chr_dev_init(void)
 	struct class *class;
 	int err;
 
-	class = class_create(THIS_MODULE, "user_mmio_clkcsrc");
+	class = class_create(THIS_MODULE, "mmio_ucs");
 	if (IS_ERR(class)) {
 		pr_err("couldn't create user mmio clocksources class\n");
 		return PTR_ERR(class);
 	}
 
 	err = alloc_chrdev_region(&user_mmio_devt, 0, CLKSRC_USER_MMIO_MAX,
-				  "user_mmio_clksrc");
+				  "mmio_ucs");
 	if (err < 0) {
 		pr_err("failed to allocate user mmio clocksources character devivces region\n");
 		goto err_class_destroy;
