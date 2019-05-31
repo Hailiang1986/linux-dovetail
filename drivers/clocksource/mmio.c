@@ -140,11 +140,42 @@ int __init clocksource_mmio_init(void __iomem *base, const char *name,
 
 static void clksrc_vmopen(struct vm_area_struct *vma)
 {
-	struct clocksource_user_mapping *mapping;
+	struct clocksource_user_mapping *mapping, *clone;
+	struct clocksource_user_mmio *ucs;
+	unsigned long h_key;
 
 	mapping = vma->vm_private_data;
 
-	atomic_inc(&mapping->refs);
+	if (mapping->mm == vma->vm_mm) {
+		atomic_inc(&mapping->refs);
+	} else if (mapping->mm) {
+		/*
+		 * We must be duplicating the original mm upon fork(),
+		 * clone the parent ucs mapping struct then rehash it
+		 * on the child mm key. If we cannot get memory for
+		 * this, mitigate the issue for users by preventing a
+		 * stale parent mm from being matched later on by a
+		 * process which reused its mm_struct (h_key is based
+		 * on this struct address).
+		 */
+		clone = kmalloc(sizeof(*mapping), GFP_KERNEL);
+		if (clone == NULL) {
+			pr_alert("out-of-memory for UCS mapping!\n");
+			atomic_inc(&mapping->refs);
+			mapping->mm = NULL;
+			return;
+		}
+		ucs = mapping->ucs;
+		clone->mm = vma->vm_mm;
+		clone->ucs = ucs;
+		clone->regs = mapping->regs;
+		atomic_set(&clone->refs, 1);
+		vma->vm_private_data = clone;
+		h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
+		spin_lock(&ucs->lock);
+		hash_add(ucs->mappings, &clone->link, h_key);
+		spin_unlock(&ucs->lock);
+	}
 }
 
 static void clksrc_vmclose(struct vm_area_struct *vma)
@@ -182,30 +213,13 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 
 	vma->vm_private_data = NULL;
-	vma->vm_ops = &clksrc_vmops;
-	ucs = file->private_data;
 
+	ucs = file->private_data;
 	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
 	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
 	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
 	if (pages == 2 && (!bits_upper || upper_pfn == lower_pfn))
 		return -EINVAL;
-
-	h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
-
-	prot = pgprot_noncached(vma->vm_page_prot);
-	addr = vma->vm_start;
-
-	err = remap_pfn_range(vma, addr, lower_pfn, PAGE_SIZE, prot);
-	if (err < 0)
-		return err;
-
-	if (pages == 2) {
-		addr += PAGE_SIZE;
-		err = remap_pfn_range(vma, addr, upper_pfn, PAGE_SIZE, prot);
-		if (err < 0)
-			return err;
-	}
 
 	mapping = kmalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping)
@@ -214,24 +228,42 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 	mapping->mm = vma->vm_mm;
 	mapping->ucs = ucs;
 	mapping->regs = (void *)vma->vm_start;
+	atomic_set(&mapping->refs, 1);
+
+	vma->vm_private_data = mapping;
+	vma->vm_ops = &clksrc_vmops;
+	prot = pgprot_noncached(vma->vm_page_prot);
+	addr = vma->vm_start;
+
+	err = remap_pfn_range(vma, addr, lower_pfn, PAGE_SIZE, prot);
+	if (err < 0)
+		goto fail;
+
+	if (pages > 1) {
+		addr += PAGE_SIZE;
+		err = remap_pfn_range(vma, addr, upper_pfn, PAGE_SIZE, prot);
+		if (err < 0)
+			goto fail;
+	}
+
+	h_key = (unsigned long)vma->vm_mm / sizeof(*vma->vm_mm);
 
 	spin_lock(&ucs->lock);
 	hash_for_each_possible(ucs->mappings, tmp, link, h_key) {
-		if (tmp->mm != vma->vm_mm)
-			continue;
-		spin_unlock(&ucs->lock);
-
-		kfree(mapping);
-
-		return -EBUSY;
+		if (tmp->mm == vma->vm_mm) {
+			spin_unlock(&ucs->lock);
+			err = -EBUSY;
+			goto fail;
+		}
 	}
 	hash_add(ucs->mappings, &mapping->link, h_key);
 	spin_unlock(&ucs->lock);
 
-	atomic_set(&mapping->refs, 1);
-	vma->vm_private_data = mapping;
-
 	return 0;
+fail:
+	kfree(mapping);
+
+	return err;
 }
 
 static long
@@ -256,31 +288,29 @@ user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ENOTTY;
 	}
 
-	ucs = file->private_data;
-
 	h_key = (unsigned long)current->mm / sizeof(*current->mm);
 
-	size = PAGE_SIZE;
+	ucs = file->private_data;
 	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
 	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
 	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
+	size = PAGE_SIZE;
 	if (bits_upper && upper_pfn != lower_pfn)
 		size += PAGE_SIZE;
 
 	do {
 		spin_lock(&ucs->lock);
 		hash_for_each_possible(ucs->mappings, mapping, link, h_key) {
-			if (mapping->mm != current->mm)
-				continue;
-			spin_unlock(&ucs->lock);
-
-			map_base = mapping->regs;
-			goto found;
+			if (mapping->mm == current->mm) {
+				spin_unlock(&ucs->lock);
+				map_base = mapping->regs;
+				goto found;
+			}
 		}
 		spin_unlock(&ucs->lock);
 
-		map_base =
-			(void *)vm_mmap(file, 0, size, PROT_READ, MAP_SHARED, 0);
+		map_base = (void *)
+			vm_mmap(file, 0, size, PROT_READ, MAP_SHARED, 0);
 	} while (IS_ERR(map_base) && PTR_ERR(map_base) == -EBUSY);
 
 	if (IS_ERR(map_base))
