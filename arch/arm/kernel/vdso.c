@@ -228,7 +228,7 @@ void update_vsyscall(struct timekeeper *tk)
 		if (cd->clock_type >= ARM_CLOCK_USER_MMIO_BASE)
 			snprintf(vdso_data->mmio_dev_name,
 				sizeof(vdso_data->mmio_dev_name),
-				"/dev/user_mmio_clksrc/%u",
+				"/dev/ucs/%u",
 				cd->clock_type - ARM_CLOCK_USER_MMIO_BASE);
 	}
 
