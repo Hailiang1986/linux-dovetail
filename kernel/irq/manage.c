@@ -799,13 +799,10 @@ int irq_switch_oob(unsigned int irq, bool on)
 
 	if (!desc->action)
 		ret = -EINVAL;
-	else {
-		if (on) {
-			if (!irq_settings_is_oob(desc))
-				irq_settings_set_oob(desc);
-		} else if (irq_settings_is_oob(desc))
-			irq_settings_clr_oob(desc);
-	}
+	else if (on)
+		irq_settings_set_oob(desc);
+	else
+		irq_settings_clr_oob(desc);
 
 	irq_put_desc_unlock(desc, flags);
 
