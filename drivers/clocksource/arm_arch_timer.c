@@ -888,6 +888,7 @@ static int arch_timer_starting_cpu(unsigned int cpu)
 	enable_percpu_irq(arch_timer_ppi[arch_timer_uses_ppi], flags);
 
 	if (arch_timer_has_nonsecure_ppi()) {
+		clk->irq = arch_timer_ppi[ARCH_TIMER_PHYS_NONSECURE_PPI];
 		flags = check_ppi_trigger(arch_timer_ppi[ARCH_TIMER_PHYS_NONSECURE_PPI]);
 		enable_percpu_irq(arch_timer_ppi[ARCH_TIMER_PHYS_NONSECURE_PPI],
 				  flags);
