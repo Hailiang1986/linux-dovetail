@@ -32,7 +32,7 @@ extern void fpregs_mark_activate(void);
  */
 static inline unsigned long fpregs_lock(void)
 {
-	if (IS_ENABLED(CONFIG_DOVETAIL)) {
+	if (IS_ENABLED(CONFIG_IRQ_PIPELINE)) {
 		return hard_preempt_disable();
 	} else {
 		preempt_disable();
@@ -43,7 +43,7 @@ static inline unsigned long fpregs_lock(void)
 
 static inline void fpregs_unlock(unsigned long flags)
 {
-	if (IS_ENABLED(CONFIG_DOVETAIL)) {
+	if (IS_ENABLED(CONFIG_IRQ_PIPELINE)) {
 		hard_preempt_enable(flags);
 	} else {
 		local_bh_enable();
