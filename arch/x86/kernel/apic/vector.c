@@ -728,6 +728,10 @@ static struct irq_desc *__setup_vector_irq(int vector)
 {
 	int isairq = vector - ISA_IRQ_VECTOR(0);
 
+	/* Copy the cleanup vector if irqs are pipelined. */
+	if (IS_ENABLED(CONFIG_SMP) &&
+		vector == IRQ_MOVE_CLEANUP_VECTOR)
+		return irq_to_desc(IRQ_MOVE_CLEANUP_VECTOR); /* 1:1 mapping */
 	/* Check whether the irq is in the legacy space */
 	if (isairq < 0 || isairq >= nr_legacy_irqs())
 		return VECTOR_UNUSED;
