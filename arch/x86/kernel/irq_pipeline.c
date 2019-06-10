@@ -221,38 +221,38 @@ static void create_x86_apic_domain(void)
 
 #ifdef CONFIG_SMP
 
-static irqreturn_t irq_move_cleanup_handler(int irq, void *dev_id)
+void handle_irq_move_cleanup(struct irq_desc *desc)
 {
-	smp_irq_move_cleanup_interrupt();
-
-	return IRQ_HANDLED;
+	if (on_pipeline_entry()) {
+		/* First there on receipt from hardware. */
+		__ack_APIC_irq();
+		handle_oob_irq(desc);
+	} else /* Next there on inband delivery. */
+		smp_irq_move_cleanup_interrupt();
 }
-
-static struct irqaction irq_move_cleanup = {
-	.handler = irq_move_cleanup_handler,
-	.name = "irq move cleanup",
-	.flags = IRQF_NO_THREAD,
-};
 
 static void smp_setup(void)
 {
-	struct irq_desc *desc;
-	unsigned int irq;
-	int cpu;
+	int irq;
 
 	/*
 	 * The IRQ cleanup event must be pipelined to the inband
-	 * stage, so we need a valid IRQ descriptor for it. Since
-	 * IRQ_MOVE_CLEANUP_VECTOR does not belong to the APIC mapping
-	 * range, get a descriptor from the x86 vector domain instead.
+	 * stage, so we need a valid IRQ descriptor for it. Since we
+	 * still are in the early boot stage on CPU0, we ask for a 1:1
+	 * mapping between the vector number and IRQ number, to make
+	 * things easier for us later on.
 	 */
-	irq = irq_create_mapping(x86_vector_domain, IRQ_MOVE_CLEANUP_VECTOR);
-	BUG_ON(irq == 0);
-	desc = irq_to_desc(irq);
-	for_each_possible_cpu(cpu)
-		per_cpu(vector_irq, cpu)[IRQ_MOVE_CLEANUP_VECTOR] = desc;
+	irq = irq_alloc_desc_at(IRQ_MOVE_CLEANUP_VECTOR, 0);
+	WARN_ON(IRQ_MOVE_CLEANUP_VECTOR != irq);
+	/*
+	 * Set up the vector_irq[] mapping array for the boot CPU,
+	 * other CPUs will copy this entry when their APIC is going
+	 * online (see lapic_online()).
+	 */
+	per_cpu(vector_irq, 0)[irq] = irq_to_desc(irq);
 
-	setup_irq(irq, &irq_move_cleanup);
+	irq_set_chip_and_handler(irq, &dummy_irq_chip,
+				handle_irq_move_cleanup);
 }
 
 #else
