@@ -995,7 +995,7 @@ static __poll_t lineevent_oob_poll(struct file *filep,
 	unsigned long flags;
 	__poll_t ready = 0;
 
-	evl_poll_watch(&le->oob_state.poll_head, wait);
+	evl_poll_watch(&le->oob_state.poll_head, wait, NULL);
 
 	xnlock_get_irqsave(&nklock, flags);
 
