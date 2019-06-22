@@ -8107,8 +8107,17 @@ int dovetail_leave_inband(void)
 	set_current_state(TASK_INTERRUPTIBLE);
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 	sched_submit_work(p);
-	if (likely(__schedule(false)))
+	/*
+	 * The current task is scheduled out from the inband stage,
+	 * before resuming on the oob stage. Since this code stands
+	 * for the scheduling tail of the oob scheduler,
+	 * arch_dovetail_switch_finish() is called to perform
+	 * architecture-specific fixups (e.g. fpu context reload).
+	 */
+	if (likely(__schedule(false))) {
+		arch_dovetail_switch_finish(false);
 		return 0;
+	}
 
 	clear_thread_local_flags(_TLF_OFFSTAGE);
 	pd->task_inflight = NULL;
