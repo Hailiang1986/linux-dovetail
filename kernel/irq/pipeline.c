@@ -884,34 +884,37 @@ void do_inband_irq(struct irq_desc *desc)
 
 static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
 {
-	struct irq_stage_data *p = this_oob_staged(), *old;
-	struct irq_stage *oob = p->stage;
+	struct irq_stage_data *oobd = this_oob_staged(), *prevd;
 
-	if (unlikely(test_stage_bit(STAGE_STALL_BIT, p))) {
-		irq_post_stage(oob, irq_desc_get_irq(desc));
-		/* We may NOT have hardirqs on with a stalled oob. */
+	if (unlikely(test_stage_bit(STAGE_STALL_BIT, oobd))) {
+		irq_post_stage(&oob_stage, irq_desc_get_irq(desc));
+		/*
+		 * Running with the oob stage stalled implies hardirqs
+		 * off, so we should have never gotten here for
+		 * handling an external IRQ in the first place.
+		 */
 		WARN_ON_ONCE(irq_pipeline_debug() && on_pipeline_entry());
 		return;
 	}
 
 	/* Switch to the oob stage if not current. */
-	old = current_irq_staged;
-	if (old != p)
-		switch_oob(p);
+	prevd = current_irq_staged;
+	if (prevd != oobd)
+		switch_oob(oobd);
 
-	set_stage_bit(STAGE_STALL_BIT, p);
+	set_stage_bit(STAGE_STALL_BIT, oobd);
 	do_oob_irq(desc);
-	clear_stage_bit(STAGE_STALL_BIT, p);
+	clear_stage_bit(STAGE_STALL_BIT, oobd);
 
 	if (irq_pipeline_debug()) {
 		/* No CPU migration allowed. */
-		WARN_ON_ONCE(this_oob_staged() != p);
+		WARN_ON_ONCE(this_oob_staged() != oobd);
 		/* No stage migration allowed. */
-		WARN_ON_ONCE(current_irq_staged->stage != oob);
+		WARN_ON_ONCE(current_irq_staged != oobd);
 	}
 
-	if (old->stage != oob)
-		switch_inband(old);
+	if (prevd != oobd)
+		switch_inband(prevd);
 }
 
 static bool inject_irq(struct irq_desc *desc)
