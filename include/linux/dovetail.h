@@ -188,6 +188,9 @@ struct oob_thread_state *dovetail_task_state(struct task_struct *p)
 static inline
 struct oob_mm_state *dovetail_mm_state(void)
 {
+	if (current->flags & PF_KTHREAD)
+		return NULL;
+
 	return &current->mm->oob_state;
 }
 
