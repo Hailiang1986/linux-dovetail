@@ -76,7 +76,7 @@ struct irq_stage_data *this_staged(struct irq_stage *stage)
  *
  * Return the address of @stage's data on @cpu.
  *
- * NOTE: this is the slowest accessor, use it carefully. Prefer
+ * This is the slowest accessor, use it carefully. Prefer
  * this_staged() for requests referring to the current
  * CPU. Additionally, if the target stage is known at build time,
  * consider using this_{inband, oob}_staged() instead.
@@ -92,8 +92,8 @@ struct irq_stage_data *percpu_inband_staged(struct irq_stage *stage, int cpu)
  * data for the inband stage on the current CPU. CPU migration must be
  * disabled.
  *
- * NOTE: this accessor is recommended when the stage we refer to is
- * known at build time to be the inband one.
+ * This accessor is recommended when the stage we refer to is known at
+ * build time to be the inband one.
  */
 static inline struct irq_stage_data *this_inband_staged(void)
 {
@@ -101,13 +101,13 @@ static inline struct irq_stage_data *this_inband_staged(void)
 }
 
 /**
- * this_oob_staged - return the address of the pipeline context
- * data for the registered oob stage on the current CPU. CPU migration
- * must be disabled.
+ * this_oob_staged - return the address of the pipeline context data
+ * for the registered oob stage on the current CPU. CPU migration must
+ * be disabled.
  *
- * NOTE: this accessor is recommended when the stage we refer to is
- * known at build time to be the registered oob stage. This address is
- * always different from the context data of the inband stage, even in
+ * This accessor is recommended when the stage we refer to is known at
+ * build time to be the registered oob stage. This address is always
+ * different from the context data of the inband stage, even in
  * absence of registered oob stage.
  */
 static inline struct irq_stage_data *this_oob_staged(void)
@@ -115,16 +115,16 @@ static inline struct irq_stage_data *this_oob_staged(void)
 	return raw_cpu_ptr(&irq_pipeline.stages[1]);
 }
 
-/**
- * __current_irq_staged() - return the address of the pipeline
- * context data of the stage running on the current CPU. CPU migration
- * must be disabled.
- */
 static inline struct irq_stage_data *__current_irq_staged(void)
 {
-	return &raw_cpu_ptr(irq_pipeline.stages)[raw_cpu_read(irq_pipeline.__curr)];
+	int index = raw_cpu_read(irq_pipeline.__curr);
+	return &raw_cpu_ptr(irq_pipeline.stages)[index];
 }
 
+/**
+ * current_irq_staged - return the address of the pipeline context
+ * data for the current stage. CPU migration must be disabled.
+ */
 #define current_irq_staged __current_irq_staged()
 
 static inline
@@ -145,12 +145,12 @@ void __set_current_irq_staged(struct irq_stage_data *pd)
 }
 
 /**
- * irq_set_*_context() - switch the current CPU to the specified stage
- * context. CPU migration must be disabled.
+ * switch_oob(), switch_inband() - switch the current CPU to the
+ * specified stage context. CPU migration must be disabled.
  *
- * NOTE: calling these routines is the only sane and safe way to
- * change the current stage for the current CPU. Don't bypass,
- * ever. Really.
+ * Calling these routines is the only sane and safe way to change the
+ * interrupt stage for the current CPU. Don't bypass them, ever.
+ * Really.
  */
 static inline
 void switch_oob(struct irq_stage_data *pd)
@@ -182,7 +182,7 @@ static inline struct irq_stage *__current_irq_stage(void)
 	/*
 	 * We don't have to hard disable irqs while accessing the
 	 * per-CPU stage data here, because there is no way we could
-	 * change stages while migrating CPUs.
+	 * switch stage and CPU at the same time.
 	 */
 	return __current_irq_staged()->stage;
 }
