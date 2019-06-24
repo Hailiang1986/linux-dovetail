@@ -91,7 +91,7 @@ static inline void inband_cleanup_notify(struct mm_struct *mm)
 }
 
 static inline
-void inband_switch_notify(struct task_struct *next)
+void prepare_inband_switch(struct task_struct *next)
 {
 	struct task_struct *prev = current;
 
@@ -100,11 +100,7 @@ void inband_switch_notify(struct task_struct *next)
 		__this_cpu_write(irq_pipeline.rqlock_owner, prev);
 		inband_event_notify(INBAND_TASK_SCHEDULE, next);
 	}
-}
 
-static inline void prepare_inband_switch(struct task_struct *next)
-{
-	inband_switch_notify(next);
 	hard_local_irq_disable();
 }
 
