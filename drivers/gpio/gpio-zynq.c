@@ -583,7 +583,7 @@ static struct irq_chip zynq_gpio_level_irqchip = {
 	.irq_request_resources = zynq_gpio_irq_reqres,
 	.irq_release_resources = zynq_gpio_irq_relres,
 	.flags		= IRQCHIP_EOI_THREADED | IRQCHIP_EOI_IF_HANDLED |
-			  IRQCHIP_MASK_ON_SUSPEND,
+			  IRQCHIP_MASK_ON_SUSPEND | IRQCHIP_PIPELINE_SAFE,
 };
 
 static struct irq_chip zynq_gpio_edge_irqchip = {
@@ -596,7 +596,7 @@ static struct irq_chip zynq_gpio_edge_irqchip = {
 	.irq_set_wake	= zynq_gpio_set_wake,
 	.irq_request_resources = zynq_gpio_irq_reqres,
 	.irq_release_resources = zynq_gpio_irq_relres,
-	.flags		= IRQCHIP_MASK_ON_SUSPEND,
+	.flags		= IRQCHIP_MASK_ON_SUSPEND | IRQCHIP_PIPELINE_SAFE,
 };
 
 static void zynq_gpio_handle_bank_irq(struct zynq_gpio *gpio,
