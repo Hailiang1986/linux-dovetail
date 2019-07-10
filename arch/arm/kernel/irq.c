@@ -24,6 +24,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
+#include <linux/irq_pipeline.h>
 #include <linux/random.h>
 #include <linux/smp.h>
 #include <linux/init.h>
@@ -102,8 +103,9 @@ void __init init_IRQ(void)
 asmlinkage int __exception_irq_entry
 handle_arch_irq_pipelined(struct pt_regs *regs)
 {
+	enter_irq_pipeline(regs);
 	handle_arch_irq(regs);
-	return running_inband() && !irqs_disabled();
+	return leave_irq_pipeline(regs);
 }
 #endif
 
