@@ -33,6 +33,54 @@ int irq_inject_pipeline(unsigned int irq);
 int generic_pipeline_irq(unsigned int irq,
 			 struct pt_regs *regs);
 
+void synchronize_pipeline(void);
+
+static __always_inline void synchronize_pipeline_on_irq(void)
+{
+	/*
+	 * Optimize if we preempted the high priority oob stage: we
+	 * don't need to synchronize the pipeline unless there is a
+	 * pending interrupt for it.
+	 */
+	if (running_inband() ||
+	    stage_irqs_pending(this_oob_staged()))
+		synchronize_pipeline();
+}
+
+void enter_oob_irq(void);
+
+static __always_inline void enter_irq_pipeline(struct pt_regs *regs)
+{
+	enter_oob_irq();
+}
+
+void exit_oob_irq(void);
+
+static __always_inline bool leave_irq_pipeline(struct pt_regs *regs)
+{
+	exit_oob_irq();
+
+	/*
+	 * We have to synchronize the logs because interrupts might
+	 * have been logged while we were busy handling an OOB event
+	 * coming from the hardware:
+	 *
+	 * - as a result of calling an OOB handler which in turned
+	 * posted them.
+	 *
+	 * - because we posted them directly for scheduling the
+	 * interrupt to happen from the inband stage.
+	 *
+	 * This also means that hardware-originated OOB events have
+	 * higher precedence when received than software-originated
+	 * ones, which are synced once all IRQ flow handlers involved
+	 * in the interrupt have run.
+	 */
+	synchronize_pipeline_on_irq();
+
+	return running_inband() && !irqs_disabled();
+}
+
 bool handle_oob_irq(struct irq_desc *desc);
 
 void arch_do_IRQ_pipelined(struct irq_desc *desc);
