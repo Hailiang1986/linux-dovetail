@@ -56,6 +56,9 @@ static __always_inline void enter_irq_pipeline(struct pt_regs *regs)
 
 void exit_oob_irq(void);
 
+void dovetail_call_mayday(struct thread_info *ti,
+			  struct pt_regs *regs);
+
 static __always_inline bool leave_irq_pipeline(struct pt_regs *regs)
 {
 	exit_oob_irq();
@@ -77,6 +80,15 @@ static __always_inline bool leave_irq_pipeline(struct pt_regs *regs)
 	 * in the interrupt have run.
 	 */
 	synchronize_pipeline_on_irq();
+
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * Sending MAYDAY is in essence a rare case, so prefer test
+	 * then maybe clear over test_and_clear.
+	 */
+	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY))
+		dovetail_call_mayday(current_thread_info(), regs);
+#endif
 
 	return running_inband() && !irqs_disabled();
 }
