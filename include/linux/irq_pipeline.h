@@ -176,4 +176,10 @@ static inline bool inband_irq_pending(void)
 
 #endif /* !CONFIG_IRQ_PIPELINE */
 
+#if !defined(CONFIG_IRQ_PIPELINE) || !defined(CONFIG_SPARSE_IRQ)
+static inline void uncache_irq_desc(unsigned int irq) { }
+#else
+void uncache_irq_desc(unsigned int irq);
+#endif
+
 #endif /* _LINUX_IRQ_PIPELINE_H */
