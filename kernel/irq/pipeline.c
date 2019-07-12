@@ -10,6 +10,7 @@
 #include <linux/irqdomain.h>
 #include <linux/irq_pipeline.h>
 #include <linux/irq_work.h>
+#include <linux/jhash.h>
 #include <trace/events/irq.h>
 #include "internals.h"
 
@@ -129,6 +130,51 @@ static int sirq_map(struct irq_domain *d, unsigned int irq,
 static struct irq_domain_ops sirq_domain_ops = {
 	.map	= sirq_map,
 };
+
+#ifdef CONFIG_SPARSE_IRQ
+/*
+ * The performances of the radix tree in sparse mode are really ugly
+ * under mm stress on some hw, use a local descriptor cache to ease
+ * the pain.
+ */
+#define DESC_CACHE_SZ  128
+
+static struct irq_desc *desc_cache[DESC_CACHE_SZ] __cacheline_aligned;
+
+static inline u32 hash_irq(unsigned int irq)
+{
+	return jhash(&irq, sizeof(irq), irq) % DESC_CACHE_SZ;
+}
+
+static __always_inline
+struct irq_desc *cached_irq_to_desc(unsigned int irq)
+{
+	int hval = hash_irq(irq);
+	struct irq_desc *desc = desc_cache[hval];
+
+	if (unlikely(desc == NULL || irq_desc_get_irq(desc) != irq)) {
+		desc = irq_to_desc(irq);
+		desc_cache[hval] = desc;
+	}
+
+	return desc;
+}
+
+void uncache_irq_desc(unsigned int irq)
+{
+	int hval = hash_irq(irq);
+
+	desc_cache[hval] = NULL;
+}
+
+#else
+
+static struct irq_desc *cached_irq_to_desc(unsigned int irq)
+{
+	return irq_to_desc(irq);
+}
+
+#endif
 
 /**
  *	handle_synthetic_irq -  synthetic irq handler
@@ -965,7 +1011,7 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	trace_irq_pipeline_entry(irq);
 
 	old_regs = set_irq_regs(regs);
-	desc = irq_to_desc(irq);
+	desc = cached_irq_to_desc(irq);
 
 	if (irq_pipeline_debug()) {
 		if (!hard_irqs_disabled()) {
@@ -1032,7 +1078,7 @@ int irq_inject_pipeline(unsigned int irq)
 	struct irq_desc *desc;
 	unsigned long flags;
 
-	desc = irq_to_desc(irq);
+	desc = cached_irq_to_desc(irq);
 	if (desc == NULL)
 		return -EINVAL;
 
@@ -1088,7 +1134,7 @@ respin:
 		 */
 		barrier();
 
-		desc = irq_to_desc(irq);
+		desc = cached_irq_to_desc(irq);
 
 		if (stage == &inband_stage) {
 			hard_local_irq_enable();
