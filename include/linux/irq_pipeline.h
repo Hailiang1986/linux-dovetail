@@ -30,9 +30,6 @@ void arch_irq_pipeline_init(void);
 
 int irq_inject_pipeline(unsigned int irq);
 
-int generic_pipeline_irq(unsigned int irq,
-			 struct pt_regs *regs);
-
 void synchronize_pipeline(void);
 
 static __always_inline void synchronize_pipeline_on_irq(void)
@@ -146,12 +143,6 @@ void irq_pipeline_clear(struct irq_desc *desc) { }
 
 static inline
 void irq_pipeline_oops(void) { }
-
-static inline
-int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
-{
-	return 0;
-}
 
 static inline bool handle_oob_irq(struct irq_desc *desc)
 {
