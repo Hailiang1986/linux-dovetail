@@ -60,11 +60,11 @@ void handle_apic_irq(struct irq_desc *desc)
 		 */
 		smp_thermal_interrupt(regs);
 		__ack_APIC_irq();
-		break;
+		return;
 	case THRESHOLD_APIC_VECTOR:
 		smp_threshold_interrupt(regs);
 		__ack_APIC_irq();
-		break;
+		return;
 	default:
 		__ack_APIC_irq();
 	}
