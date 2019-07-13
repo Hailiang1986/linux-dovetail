@@ -158,6 +158,8 @@ static inline void generic_handle_irq_desc(struct irq_desc *desc)
 
 int generic_handle_irq(unsigned int irq);
 
+int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs);
+
 #ifdef CONFIG_HANDLE_DOMAIN_IRQ
 /*
  * Convert a HW interrupt number to a logical one using a IRQ domain,
@@ -168,19 +170,29 @@ int generic_handle_irq(unsigned int irq);
 int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
 			bool lookup, struct pt_regs *regs);
 
+#ifdef CONFIG_IRQ_PIPELINE
+unsigned int irq_find_mapping(struct irq_domain *host,
+			irq_hw_number_t hwirq);
+
+static inline int handle_domain_irq(struct irq_domain *domain,
+				    unsigned int hwirq, struct pt_regs *regs)
+{
+	unsigned int irq = irq_find_mapping(domain, hwirq);
+
+	return generic_pipeline_irq(irq, regs);
+}
+#else
 static inline int handle_domain_irq(struct irq_domain *domain,
 				    unsigned int hwirq, struct pt_regs *regs)
 {
 	return __handle_domain_irq(domain, hwirq, true, regs);
 }
-
-int do_domain_irq(unsigned int irq, struct pt_regs *regs);
+#endif	/* !CONFIG_IRQ_PIPELINE */
 
 #ifdef CONFIG_IRQ_DOMAIN
 int handle_domain_nmi(struct irq_domain *domain, unsigned int hwirq,
 		      struct pt_regs *regs);
 #endif
-
 #endif
 
 /* Test to see if a driver has successfully requested an irq */
