@@ -94,5 +94,5 @@ void arch_do_IRQ_pipelined(struct irq_desc *desc)
 	}
 #endif
 
-	do_domain_irq(irq, regs);
+	__handle_domain_irq(NULL, irq, false, regs);
 }
