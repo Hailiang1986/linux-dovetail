@@ -6,6 +6,8 @@
 #ifndef _ASM_ARM64_DOVETAIL_H
 #define _ASM_ARM64_DOVETAIL_H
 
+#include <asm/fpsimd.h>
+
 /* ARM64 traps */
 #define ARM64_TRAP_ACCESS	0	/* Data or instruction access exception */
 #define ARM64_TRAP_ABRT		1	/* Memory/alignment abort */
@@ -19,6 +21,9 @@
 static inline void arch_dovetail_switch_prepare(bool leave_inband)
 { }
 
-void arch_dovetail_switch_finish(bool enter_inband);
+static inline void arch_dovetail_switch_finish(bool enter_inband)
+{
+	fpsimd_restore_current_oob();
+}
 
 #endif /* _ASM_ARM64_DOVETAIL_H */
