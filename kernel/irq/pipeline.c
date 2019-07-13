@@ -949,9 +949,18 @@ static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
 		switch_inband(prevd);
 }
 
-static bool inject_irq(struct irq_desc *desc)
+bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
 {
 	unsigned int irq = irq_desc_get_irq(desc);
+
+	/*
+	 * Flow handlers of chained interrupts have no business
+	 * running here: they should decode the event, invoking
+	 * generic_handle_irq() for each cascaded IRQ.
+	 */
+	if (WARN_ON_ONCE(irq_pipeline_debug() &&
+			 irq_settings_is_chained(desc)))
+		return false;
 
 	/*
 	 * If no oob stage is present, all interrupts must go to the
@@ -964,14 +973,14 @@ static bool inject_irq(struct irq_desc *desc)
 	 * This routine returns a boolean status telling the caller
 	 * whether an out-of-band interrupt was delivered.
 	 */
-	if (likely(oob_stage_present()) && irq_settings_is_oob(desc)) {
-		dispatch_oob_irq(desc);
-		return true;
+	if (!oob_stage_present() || !irq_settings_is_oob(desc)) {
+		irq_post_stage(&inband_stage, irq);
+		return false;
 	}
 
-	irq_post_stage(&inband_stage, irq);
+	dispatch_oob_irq(desc);
 
-	return false;
+	return true;
 }
 
 static inline
@@ -1052,20 +1061,6 @@ out:
 	return ret;
 }
 
-bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
-{
-	/*
-	 * Flow handlers of chained interrupts have no business
-	 * running here: they should decode the event, invoking
-	 * generic_handle_irq() for each cascaded IRQ.
-	 */
-	if (WARN_ON_ONCE(irq_pipeline_debug() &&
-			 irq_settings_is_chained(desc)))
-		return false;
-
-	return inject_irq(desc);
-}
-
 /**
  *	irq_inject_pipeline - Inject a software-generated IRQ into the
  *	pipeline @irq: IRQ to inject
@@ -1084,7 +1079,7 @@ int irq_inject_pipeline(unsigned int irq)
 
 	flags = hard_local_irq_save();
 	enter_oob_irq();
-	inject_irq(desc);
+	handle_oob_irq(desc);
 	exit_oob_irq();
 	synchronize_pipeline_on_irq();
 	hard_local_irq_restore(flags);
