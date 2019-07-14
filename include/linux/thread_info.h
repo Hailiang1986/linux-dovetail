@@ -191,6 +191,19 @@ void clear_ti_local_flags(struct thread_info *ti, unsigned int mask)
 	ti_local_flags(ti) &= ~mask;
 }
 
+static inline
+int test_and_clear_ti_local_flags(struct thread_info *ti, unsigned int mask)
+{
+	int old = ti_local_flags(ti) & mask;
+	ti_local_flags(ti) &= ~mask;
+	return old != 0;
+}
+
+static inline int test_and_clear_thread_local_flags(unsigned int mask)
+{
+	return test_and_clear_ti_local_flags(current_thread_info(), mask);
+}
+
 static inline void clear_thread_local_flags(unsigned int mask)
 {
 	clear_ti_local_flags(current_thread_info(), mask);
