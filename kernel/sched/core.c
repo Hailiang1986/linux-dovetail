@@ -3464,6 +3464,20 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		 */
 		switch_mm_irqs_off(prev->active_mm, next->mm, next);
 
+		/*
+		 * If dovetail is enabled, insert a short window of
+		 * opportunity for preemption by out-of-band IRQs
+		 * before finalizing the context switch.
+		 * dovetail_context_switch() can deal with preempting
+		 * partially switched in-band contexts.
+		 */
+		if (dovetailing()) {
+			struct mm_struct *oldmm = prev->active_mm;
+			prev->active_mm = next->mm;
+			hard_local_irq_sync();
+			prev->active_mm = oldmm;
+		}
+
 		if (!prev->mm) {                        // from kernel
 			/* will mmdrop() in finish_task_switch(). */
 			rq->prev_mm = prev->active_mm;
