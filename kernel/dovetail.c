@@ -271,7 +271,6 @@ static void finalize_oob_transition(void) /* hard IRQs off */
 	struct irq_stage_data *p;
 	struct task_struct *t;
 
-	check_inband_stage();
 	pd = raw_cpu_ptr(&irq_pipeline);
 	t = pd->task_inflight;
 	if (t == NULL)
@@ -305,6 +304,7 @@ void oob_trampoline(void)
 {
 	unsigned long flags;
 
+	check_inband_stage();
 	flags = hard_local_irq_save();
 	finalize_oob_transition();
 	hard_local_irq_restore(flags);
@@ -330,9 +330,10 @@ int inband_switch_tail(void)
 	 * which one we are on.
 	 */
 	inband = current_irq_stage == &inband_stage;
-	if (inband)
+	if (inband) {
 		finalize_oob_transition();
-	else {
+		hard_local_irq_enable();
+	} else {
 		set_thread_local_flags(_TLF_OOB);
 		if (!IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT)) {
 			WARN_ON_ONCE(dovetail_debug() &&
@@ -340,9 +341,6 @@ int inband_switch_tail(void)
 			preempt_count_add(STAGE_OFFSET);
 		}
 	}
-
-	if (inband)
-		hard_local_irq_enable();
 
 	return !inband;
 }
