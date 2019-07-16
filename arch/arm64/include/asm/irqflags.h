@@ -65,6 +65,13 @@ static inline void native_irq_disable(void)
 		: "memory");
 }
 
+static inline void native_irq_sync(void)
+{
+	native_irq_enable();
+	isb();
+	native_irq_disable();
+}
+
 /*
  * Save the current interrupt enable state.
  */
