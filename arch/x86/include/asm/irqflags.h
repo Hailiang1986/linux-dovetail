@@ -59,6 +59,11 @@ static inline void native_irq_enable(void)
 	asm volatile("sti": : :"memory");
 }
 
+static inline void native_irq_sync(void)
+{
+	asm volatile("sti ; nop ; cli": : :"memory");
+}
+
 static inline unsigned long native_irq_save(void)
 {
 	unsigned long flags;
