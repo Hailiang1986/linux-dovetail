@@ -801,10 +801,6 @@ void hard_preempt_enable(unsigned long flags)
 }
 EXPORT_SYMBOL_GPL(hard_preempt_enable);
 
-void __weak enter_oob_irq(void) { }
-
-void __weak exit_oob_irq(void) { }
-
 static inline
 irqreturn_t __call_action_handler(struct irqaction *action,
 				  struct irq_desc *desc)
@@ -978,7 +974,14 @@ bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
 		return false;
 	}
 
+	/*
+	 * A companion kernel must be allowed to switch context
+	 * immediately from the IRQ handler we are about to call, so
+	 * unmark the pipeline entry context until we get back.
+	 */
+	preempt_count_sub(PIPELINE_OFFSET);
 	dispatch_oob_irq(desc);
+	preempt_count_add(PIPELINE_OFFSET);
 
 	return true;
 }
@@ -1078,9 +1081,7 @@ int irq_inject_pipeline(unsigned int irq)
 		return -EINVAL;
 
 	flags = hard_local_irq_save();
-	enter_oob_irq();
 	handle_oob_irq(desc);
-	exit_oob_irq();
 	synchronize_pipeline_on_irq();
 	hard_local_irq_restore(flags);
 
