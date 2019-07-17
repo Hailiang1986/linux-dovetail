@@ -44,22 +44,15 @@ static __always_inline void synchronize_pipeline_on_irq(void)
 		synchronize_pipeline();
 }
 
-void enter_oob_irq(void);
-
 static __always_inline void enter_irq_pipeline(struct pt_regs *regs)
 {
-	enter_oob_irq();
 }
-
-void exit_oob_irq(void);
 
 void dovetail_call_mayday(struct thread_info *ti,
 			  struct pt_regs *regs);
 
 static __always_inline bool leave_irq_pipeline(struct pt_regs *regs)
 {
-	exit_oob_irq();
-
 	/*
 	 * We have to synchronize the logs because interrupts might
 	 * have been logged while we were busy handling an OOB event
