@@ -932,17 +932,22 @@ static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
 
 	set_stage_bit(STAGE_STALL_BIT, oobd);
 	do_oob_irq(desc);
+	oobd = this_oob_staged();
 	clear_stage_bit(STAGE_STALL_BIT, oobd);
 
-	if (irq_pipeline_debug()) {
-		/* No CPU migration allowed. */
-		WARN_ON_ONCE(this_oob_staged() != oobd);
-		/* No stage migration allowed. */
-		WARN_ON_ONCE(current_irq_staged != oobd);
-	}
-
-	if (prevd != oobd)
-		switch_inband(prevd);
+	/*
+	 * CPU migration and/or stage switching over the handler are
+	 * allowed.  Our exit logic is as follows:
+	 *
+	 *    ENTRY      EXIT      EPILOGUE
+	 *
+	 *    oob        oob       nop
+	 *    inband     oob       switch inband
+	 *    oob        inband    nop
+	 *    inband     inband    nop
+	 */
+	if (prevd->stage != &oob_stage && current_irq_staged == oobd)
+		switch_inband(this_inband_staged());
 }
 
 bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
@@ -1212,10 +1217,10 @@ int notrace run_oob_call(int (*fn)(void *arg), void *arg)
 	 *
 	 *    ON-ENTRY  AFTER-CALL  EPILOGUE
 	 *
-	 *    oob       oob        sync current stage if !stalled
-	 *    inband    oob        switch to inband + sync all stages
-	 *    oob       inband     sync all stages
-	 *    inband    inband     sync all stages
+	 *    oob       oob         sync current stage if !stalled
+	 *    inband    oob         switch to inband + sync all stages
+	 *    oob       inband      sync all stages
+	 *    inband    inband      sync all stages
 	 *
 	 * Each path which has stalled the oob stage while running on
 	 * the inband stage at some point during the escalation
