@@ -14,6 +14,7 @@
 
 #include <evl/poll.h>
 #include <evl/wait.h>
+#include <evl/irq.h>
 
 struct lineevent_oob_state {
 	struct evl_file efile;
