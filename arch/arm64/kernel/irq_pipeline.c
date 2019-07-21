@@ -28,9 +28,6 @@ static struct irq_chip sipic_chip = {
 	.irq_shutdown	= sipic_irq_noop,
 	.irq_enable	= sipic_irq_noop,
 	.irq_disable	= sipic_irq_noop,
-	.irq_ack	= sipic_irq_noop,
-	.irq_mask	= sipic_irq_noop,
-	.irq_unmask	= sipic_irq_noop,
 	.flags		= IRQCHIP_PIPELINE_SAFE | IRQCHIP_SKIP_SET_WAKE,
 };
 
