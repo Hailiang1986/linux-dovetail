@@ -969,8 +969,6 @@ static irqreturn_t lineevent_oob_irq_handler(int irq, void *p)
 	if (lineevent_read_pin(le, &ge, false) == IRQ_NONE)
 		return IRQ_NONE;
 
-	evl_enter_irq();
-
 	raw_spin_lock_irqsave(&le->oob_state.lock, flags);
 
 	/*
@@ -986,8 +984,6 @@ static irqreturn_t lineevent_oob_irq_handler(int irq, void *p)
 	evl_signal_poll_events(&le->oob_state.poll_head, POLLIN|POLLRDNORM);
 
 	raw_spin_unlock_irqrestore(&le->oob_state.lock, flags);
-
-	evl_leave_irq();
 
 	return IRQ_HANDLED;
 }
