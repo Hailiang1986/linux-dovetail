@@ -870,15 +870,25 @@ static void do_oob_irq(struct irq_desc *desc)
 	struct irqaction *action;
 	void *dev_id;
 
-	for_each_action_of_desc(desc, action) {
-		trace_irq_handler_entry(irq, action);
-		dev_id = percpu_devid ? raw_cpu_ptr(action->percpu_dev_id)
-			: action->dev_id;
-		res = action->handler(irq, dev_id);
-		trace_irq_handler_exit(irq, action, res);
-		ret |= res;
-	}
+	action = desc->action;
+	if (unlikely(action == NULL))
+		goto done;
 
+	if (percpu_devid) {
+		trace_irq_handler_entry(irq, action);
+		dev_id = raw_cpu_ptr(action->percpu_dev_id);
+		ret = action->handler(irq, dev_id);
+		trace_irq_handler_exit(irq, action, ret);
+	} else {
+		for_each_action_of_desc(desc, action) {
+			trace_irq_handler_entry(irq, action);
+			dev_id = action->dev_id;
+			res = action->handler(irq, dev_id);
+			trace_irq_handler_exit(irq, action, res);
+			ret |= res;
+		}
+	}
+done:
 	if (likely(ret & IRQ_HANDLED)) {
 		desc->irqs_unhandled = 0;
 		return;
