@@ -912,16 +912,15 @@ static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
 {
 	struct irq_stage_data *oobd = this_oob_staged(), *prevd;
 
-	if (unlikely(test_stage_bit(STAGE_STALL_BIT, oobd))) {
-		irq_post_stage(&oob_stage, irq_desc_get_irq(desc));
-		/*
-		 * Running with the oob stage stalled implies hardirqs
-		 * off, so we should have never gotten here for
-		 * handling an external IRQ in the first place.
-		 */
-		WARN_ON_ONCE(irq_pipeline_debug() && on_pipeline_entry());
+	/*
+	 * Running with the oob stage stalled implies hardirqs off, so
+	 * we should have never gotten here for handling an external
+	 * IRQ in the first place.
+	 */
+	if (WARN_ON_ONCE(irq_pipeline_debug() &&
+				on_pipeline_entry() &&
+				test_stage_bit(STAGE_STALL_BIT, oobd)))
 		return;
-	}
 
 	/* Switch to the oob stage if not current. */
 	prevd = current_irq_staged;
@@ -1072,6 +1071,7 @@ out:
  */
 int irq_inject_pipeline(unsigned int irq)
 {
+	struct irq_stage_data *oobd;
 	struct irq_desc *desc;
 	unsigned long flags;
 
@@ -1080,11 +1080,25 @@ int irq_inject_pipeline(unsigned int irq)
 		return -EINVAL;
 
 	flags = hard_local_irq_save();
-	irq_enter_pipeline();
-	handle_oob_irq(desc);
-	irq_exit_pipeline();
-	incr_irq_kstat(desc);
-	synchronize_pipeline_on_irq();
+
+	/*
+	 * Handle the case of an IRQ sent to a stalled oob stage here,
+	 * which allows to trap the same condition in
+	 * dispatch_oob_irq() in a debug check (see comment there).
+	 */
+	oobd = this_oob_staged();
+	if (oob_stage_present() &&
+		irq_settings_is_oob(desc) &&
+		test_stage_bit(STAGE_STALL_BIT, oobd)) {
+		irq_post_stage(&oob_stage, irq);
+	} else {
+		irq_enter_pipeline();
+		handle_oob_irq(desc);
+		irq_exit_pipeline();
+		incr_irq_kstat(desc);
+		synchronize_pipeline_on_irq();
+	}
+
 	hard_local_irq_restore(flags);
 
 	return 0;
