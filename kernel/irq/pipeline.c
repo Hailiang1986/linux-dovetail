@@ -208,7 +208,7 @@ void handle_synthetic_irq(struct irq_desc *desc)
 		return;
 	}
 
-	kstat_incr_irqs_this_cpu(desc);
+	__kstat_incr_irqs_this_cpu(desc);
 	trace_irq_handler_entry(irq, action);
 	ret = action->handler(irq, action->dev_id);
 	trace_irq_handler_exit(irq, action, ret);
@@ -802,19 +802,6 @@ void hard_preempt_enable(unsigned long flags)
 }
 EXPORT_SYMBOL_GPL(hard_preempt_enable);
 
-static inline
-irqreturn_t __call_action_handler(struct irqaction *action,
-				  struct irq_desc *desc)
-{
-	unsigned int irq = irq_desc_get_irq(desc);
-	void *dev_id = action->dev_id;
-
-	if (irq_settings_is_per_cpu_devid(desc))
-		dev_id = raw_cpu_ptr(action->percpu_dev_id);
-
-	return action->handler(irq, dev_id);
-}
-
 static void handle_unexpected_irq(struct irq_desc *desc, irqreturn_t ret)
 {
 	unsigned int irq = irq_desc_get_irq(desc);
@@ -877,15 +864,17 @@ static void handle_unexpected_irq(struct irq_desc *desc, irqreturn_t ret)
  */
 static void do_oob_irq(struct irq_desc *desc)
 {
+	bool percpu_devid = irq_settings_is_per_cpu_devid(desc);
 	unsigned int irq = irq_desc_get_irq(desc);
 	irqreturn_t ret = IRQ_NONE, res;
 	struct irqaction *action;
-
-	kstat_incr_irqs_this_cpu(desc);
+	void *dev_id;
 
 	for_each_action_of_desc(desc, action) {
 		trace_irq_handler_entry(irq, action);
-		res = __call_action_handler(action, desc);
+		dev_id = percpu_devid ? raw_cpu_ptr(action->percpu_dev_id)
+			: action->dev_id;
+		res = action->handler(irq, dev_id);
 		trace_irq_handler_exit(irq, action, res);
 		ret |= res;
 	}
@@ -909,6 +898,14 @@ void do_inband_irq(struct irq_desc *desc)
 {
 	arch_do_IRQ_pipelined(desc);
 	WARN_ON_ONCE(irq_pipeline_debug() && !irqs_disabled());
+}
+
+static inline void incr_irq_kstat(struct irq_desc *desc)
+{
+	if (irq_settings_is_per_cpu_devid(desc))
+		__kstat_incr_irqs_this_cpu(desc);
+	else
+		kstat_incr_irqs_this_cpu(desc);
 }
 
 static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
@@ -1058,6 +1055,7 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	generic_handle_irq_desc(desc);
 	preempt_count_sub(PIPELINE_OFFSET);
 	irq_exit_pipeline();
+	incr_irq_kstat(desc);
 out:
 	set_irq_regs(old_regs);
 	trace_irq_pipeline_exit(irq);
@@ -1085,6 +1083,7 @@ int irq_inject_pipeline(unsigned int irq)
 	irq_enter_pipeline();
 	handle_oob_irq(desc);
 	irq_exit_pipeline();
+	incr_irq_kstat(desc);
 	synchronize_pipeline_on_irq();
 	hard_local_irq_restore(flags);
 
@@ -1139,8 +1138,10 @@ respin:
 			hard_local_irq_enable();
 			do_inband_irq(desc);
 			hard_local_irq_disable();
-		} else
+		} else {
 			do_oob_irq(desc);
+			incr_irq_kstat(desc);
+		}
 
 		/*
 		 * We may have migrated to a different CPU (1) upon
