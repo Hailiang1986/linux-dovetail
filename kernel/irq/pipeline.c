@@ -11,6 +11,7 @@
 #include <linux/irq_pipeline.h>
 #include <linux/irq_work.h>
 #include <linux/jhash.h>
+#include <dovetail/irq.h>
 #include <trace/events/irq.h>
 #include "internals.h"
 
@@ -932,22 +933,22 @@ static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
 
 	set_stage_bit(STAGE_STALL_BIT, oobd);
 	do_oob_irq(desc);
-	oobd = this_oob_staged();
 	clear_stage_bit(STAGE_STALL_BIT, oobd);
 
 	/*
 	 * CPU migration and/or stage switching over the handler are
-	 * allowed.  Our exit logic is as follows:
-	 *
-	 *    ENTRY      EXIT      EPILOGUE
-	 *
-	 *    oob        oob       nop
-	 *    inband     oob       switch inband
-	 *    oob        inband    nop
-	 *    inband     inband    nop
+	 * NOT allowed. These should take place over
+	 * irq_exit_pipeline().
 	 */
-	if (prevd->stage != &oob_stage && current_irq_staged == oobd)
-		switch_inband(this_inband_staged());
+	if (irq_pipeline_debug()) {
+		/* No CPU migration allowed. */
+		WARN_ON_ONCE(this_oob_staged() != oobd);
+		/* No stage migration allowed. */
+		WARN_ON_ONCE(current_irq_staged != oobd);
+	}
+
+	if (prevd != oobd)
+		switch_inband(prevd);
 }
 
 bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
@@ -979,14 +980,7 @@ bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
 		return false;
 	}
 
-	/*
-	 * A companion kernel must be allowed to switch context
-	 * immediately from the IRQ handler we are about to call, so
-	 * unmark the pipeline entry context until we get back.
-	 */
-	preempt_count_sub(PIPELINE_OFFSET);
 	dispatch_oob_irq(desc);
-	preempt_count_add(PIPELINE_OFFSET);
 
 	return true;
 }
@@ -1059,9 +1053,11 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	}
 
 	copy_timer_regs(desc, regs);
+	irq_enter_pipeline();
 	preempt_count_add(PIPELINE_OFFSET);
 	generic_handle_irq_desc(desc);
 	preempt_count_sub(PIPELINE_OFFSET);
+	irq_exit_pipeline();
 out:
 	set_irq_regs(old_regs);
 	trace_irq_pipeline_exit(irq);
@@ -1086,7 +1082,9 @@ int irq_inject_pipeline(unsigned int irq)
 		return -EINVAL;
 
 	flags = hard_local_irq_save();
+	irq_enter_pipeline();
 	handle_oob_irq(desc);
+	irq_exit_pipeline();
 	synchronize_pipeline_on_irq();
 	hard_local_irq_restore(flags);
 
