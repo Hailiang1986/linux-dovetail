@@ -184,6 +184,7 @@ void check_and_switch_context(struct mm_struct *mm, unsigned int cpu)
 {
 	unsigned long flags;
 	u64 asid, old_active_asid;
+	bool need_flush;
 
 	WARN_ON_ONCE(dovetail_debug() && !hard_irqs_disabled());
 
@@ -221,11 +222,13 @@ void check_and_switch_context(struct mm_struct *mm, unsigned int cpu)
 		atomic64_set(&mm->context.id, asid);
 	}
 
-	if (cpumask_test_and_clear_cpu(cpu, &tlb_flush_pending))
-		local_flush_tlb_all();
+	need_flush = cpumask_test_and_clear_cpu(cpu, &tlb_flush_pending);
 
 	atomic64_set(&per_cpu(active_asids, cpu), asid);
 	raw_spin_unlock_irqrestore(&cpu_asid_lock, flags);
+
+	if (need_flush)
+		local_flush_tlb_all();
 
 switch_mm_fastpath:
 
