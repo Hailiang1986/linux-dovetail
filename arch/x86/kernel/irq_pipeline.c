@@ -191,8 +191,6 @@ __visible unsigned int __irq_entry handle_arch_irq_pipelined(struct pt_regs *reg
 		irq = irq_desc_get_irq(desc);
 	}
 
-	enter_irq_pipeline(regs);
-
 	generic_pipeline_irq(irq, regs);
 
 	return leave_irq_pipeline(regs);
