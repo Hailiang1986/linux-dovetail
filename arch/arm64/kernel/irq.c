@@ -43,7 +43,6 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 asmlinkage int __exception_irq_entry
 handle_arch_irq_pipelined(struct pt_regs *regs)
 {
-	enter_irq_pipeline(regs);
 	handle_arch_irq(regs);
 	return leave_irq_pipeline(regs);
 }
