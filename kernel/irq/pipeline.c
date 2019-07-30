@@ -918,47 +918,9 @@ static inline void incr_irq_kstat(struct irq_desc *desc)
 		kstat_incr_irqs_this_cpu(desc);
 }
 
-static void dispatch_oob_irq(struct irq_desc *desc) /* hardirqs off */
+bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off, oob */
 {
-	struct irq_stage_data *oobd = this_oob_staged(), *prevd;
-
-	/*
-	 * Running with the oob stage stalled implies hardirqs off, so
-	 * we should have never gotten here for handling an external
-	 * IRQ in the first place.
-	 */
-	if (WARN_ON_ONCE(irq_pipeline_debug() &&
-				on_pipeline_entry() &&
-				test_stage_bit(STAGE_STALL_BIT, oobd)))
-		return;
-
-	/* Switch to the oob stage if not current. */
-	prevd = current_irq_staged;
-	if (prevd != oobd)
-		switch_oob(oobd);
-
-	set_stage_bit(STAGE_STALL_BIT, oobd);
-	do_oob_irq(desc);
-	clear_stage_bit(STAGE_STALL_BIT, oobd);
-
-	/*
-	 * CPU migration and/or stage switching over the handler are
-	 * NOT allowed. These should take place over
-	 * irq_exit_pipeline().
-	 */
-	if (irq_pipeline_debug()) {
-		/* No CPU migration allowed. */
-		WARN_ON_ONCE(this_oob_staged() != oobd);
-		/* No stage migration allowed. */
-		WARN_ON_ONCE(current_irq_staged != oobd);
-	}
-
-	if (prevd != oobd)
-		switch_inband(prevd);
-}
-
-bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
-{
+	struct irq_stage_data *oobd = this_oob_staged();
 	unsigned int irq = irq_desc_get_irq(desc);
 
 	/*
@@ -986,7 +948,36 @@ bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off */
 		return false;
 	}
 
-	dispatch_oob_irq(desc);
+	if (WARN_ON_ONCE(irq_pipeline_debug() && running_inband()))
+		return false;
+	/*
+	 * Running with the oob stage stalled implies hardirqs off, so
+	 * we should have never gotten here for handling an external
+	 * IRQ in the first place: something is badly broken in our
+	 * interrupt state. Pretend the event has been handled, which
+	 * may end up with the device hammering us with more
+	 * interrupts, but there is no safe option at this point.
+	 */
+	if (WARN_ON_ONCE(irq_pipeline_debug() &&
+				on_pipeline_entry() &&
+				test_stage_bit(STAGE_STALL_BIT, oobd)))
+		return true;
+
+	set_stage_bit(STAGE_STALL_BIT, oobd);
+	do_oob_irq(desc);
+	clear_stage_bit(STAGE_STALL_BIT, oobd);
+
+	/*
+	 * CPU migration and/or stage switching over the handler are
+	 * NOT allowed. These should take place over
+	 * irq_exit_pipeline().
+	 */
+	if (irq_pipeline_debug()) {
+		/* No CPU migration allowed. */
+		WARN_ON_ONCE(this_oob_staged() != oobd);
+		/* No stage migration allowed. */
+		WARN_ON_ONCE(current_irq_staged != oobd);
+	}
 
 	return true;
 }
@@ -1009,6 +1000,44 @@ void copy_timer_regs(struct irq_desc *desc, struct pt_regs *regs)
 	arch_save_timer_regs(&p->tick_regs, regs, running_oob());
 }
 
+static __always_inline
+struct irq_stage_data *switch_stage_on_irq(void)
+{
+	struct irq_stage_data *prevd = current_irq_staged, *nextd;
+
+	if (oob_stage_present()) {
+		nextd = this_oob_staged();
+		if (prevd != nextd)
+			switch_oob(nextd);
+	}
+
+	return prevd;
+}
+
+static __always_inline
+void restore_stage_on_irq(struct irq_stage_data *prevd)
+{
+	struct irq_stage_data *nextd;
+
+	/*
+	 * CPU migration and/or stage switching over
+	 * irq_exit_pipeline() are allowed.  Our exit logic is as
+	 * follows:
+	 *
+	 *    ENTRY      EXIT      EPILOGUE
+	 *
+	 *    oob        oob       nop
+	 *    inband     oob       switch inband
+	 *    oob        inband    nop
+	 *    inband     inband    nop
+	 */
+	if (prevd->stage == &inband_stage) {
+		nextd = this_oob_staged();
+		if (current_irq_staged == nextd)
+			switch_inband(prevd);
+	}
+}
+
 /**
  *	generic_pipeline_irq - Pass an IRQ to the pipeline
  *	@irq:	IRQ to pass
@@ -1021,6 +1050,7 @@ void copy_timer_regs(struct irq_desc *desc, struct pt_regs *regs)
  */
 int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 {
+	struct irq_stage_data *prevd;
 	struct pt_regs *old_regs;
 	struct irq_desc *desc;
 	int ret = 0;
@@ -1058,6 +1088,13 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 		goto out;
 	}
 
+	/*
+	 * We switch eagerly to the oob stage if present, so that a
+	 * companion kernel readily runs on the right stage when we
+	 * call its out-of-band IRQ handler from handle_oob_irq(),
+	 * then irq_exit_pipeline() to unwind the interrupt context.
+	 */
+	prevd = switch_stage_on_irq();
 	copy_timer_regs(desc, regs);
 	irq_enter_pipeline();
 	preempt_count_add(PIPELINE_OFFSET);
@@ -1065,6 +1102,7 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	preempt_count_sub(PIPELINE_OFFSET);
 	irq_exit_pipeline();
 	incr_irq_kstat(desc);
+	restore_stage_on_irq(prevd);
 out:
 	set_irq_regs(old_regs);
 	trace_irq_pipeline_exit(irq);
@@ -1081,7 +1119,7 @@ out:
  */
 int irq_inject_pipeline(unsigned int irq)
 {
-	struct irq_stage_data *oobd;
+	struct irq_stage_data *oobd, *prevd;
 	struct irq_desc *desc;
 	unsigned long flags;
 
@@ -1093,8 +1131,8 @@ int irq_inject_pipeline(unsigned int irq)
 
 	/*
 	 * Handle the case of an IRQ sent to a stalled oob stage here,
-	 * which allows to trap the same condition in
-	 * dispatch_oob_irq() in a debug check (see comment there).
+	 * which allows to trap the same condition in handle_oob_irq()
+	 * in a debug check (see comment there).
 	 */
 	oobd = this_oob_staged();
 	if (oob_stage_present() &&
@@ -1102,10 +1140,12 @@ int irq_inject_pipeline(unsigned int irq)
 		test_stage_bit(STAGE_STALL_BIT, oobd)) {
 		irq_post_stage(&oob_stage, irq);
 	} else {
+		prevd = switch_stage_on_irq();
 		irq_enter_pipeline();
 		handle_oob_irq(desc);
 		irq_exit_pipeline();
 		incr_irq_kstat(desc);
+		restore_stage_on_irq(prevd);
 		synchronize_pipeline_on_irq();
 	}
 
