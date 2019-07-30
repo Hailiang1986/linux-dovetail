@@ -30,7 +30,6 @@ unsigned long inband_irqs_disabled(void);
 #define hard_local_irq_restore(__flags)		native_irq_restore(__flags)
 #define hard_local_irq_enable()			native_irq_enable()
 #define hard_local_irq_disable()		native_irq_disable()
-#define hard_local_irq_sync()			native_irq_sync()
 #define hard_local_save_flags()			native_save_flags()
 
 #define hard_irqs_disabled()			native_irqs_disabled()
@@ -79,6 +78,8 @@ static inline void irq_pipeline_nmi_enter(void) { }
 static inline void irq_pipeline_nmi_exit(void) { }
 
 #endif /* !CONFIG_IRQ_PIPELINE */
+
+#define hard_local_irq_sync()			native_irq_sync()
 
 #if defined(CONFIG_SMP) && defined(CONFIG_IRQ_PIPELINE)
 #define hard_smp_local_irq_save()		hard_local_irq_save()
