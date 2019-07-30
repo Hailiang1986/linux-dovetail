@@ -417,6 +417,18 @@ void irq_exit(void)
 	trace_hardirq_exit(); /* must be last! */
 }
 
+void irq_enter_if_inband(void)
+{
+	if (running_inband())
+		irq_enter();
+}
+
+void irq_exit_if_inband(void)
+{
+	if (running_inband())
+		irq_exit();
+}
+
 /*
  * This function must run with irqs disabled!
  */
