@@ -44,10 +44,6 @@ static __always_inline void synchronize_pipeline_on_irq(void)
 		synchronize_pipeline();
 }
 
-static __always_inline void enter_irq_pipeline(struct pt_regs *regs)
-{
-}
-
 void dovetail_call_mayday(struct thread_info *ti,
 			  struct pt_regs *regs);
 
