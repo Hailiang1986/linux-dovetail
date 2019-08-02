@@ -1878,6 +1878,8 @@ static void pl011_shutdown(struct uart_port *port)
 
 	pl011_disable_uart(uap);
 
+	if (IS_ENABLED(CONFIG_RAW_PRINTK))
+		clk_disable(uap->clk);
 	/*
 	 * Shut down the clock producer
 	 */
@@ -2206,34 +2208,31 @@ static void pl011_console_putchar(struct uart_port *port, int ch)
 
 #ifdef CONFIG_RAW_PRINTK
 
-/*
- * The uart clk stays on all along in the current implementation,
- * despite what pl011_console_write() suggests, so for the time being,
- * just emit the characters assuming the chip is clocked. If the clock
- * ends up being turned off after writing, we may need to clk_enable()
- * it at console setup, relying on the non-zero enable_count for
- * keeping pl011_console_write() from disabling it.
- */
 static void
 pl011_console_write_raw(struct console *co, const char *s, unsigned int count)
 {
 	struct uart_amba_port *uap = amba_ports[co->index];
-	unsigned int old_cr, new_cr, status;
+	unsigned int old_cr = 0, new_cr;
 
-	old_cr = readw(uap->port.membase + UART011_CR);
-	new_cr = old_cr & ~UART011_CR_CTSEN;
-	new_cr |= UART01x_CR_UARTEN | UART011_CR_TXE;
-	writew(new_cr, uap->port.membase + UART011_CR);
+	if (!uap->vendor->always_enabled) {
+		old_cr = pl011_read(uap, REG_CR);
+		new_cr = old_cr & ~UART011_CR_CTSEN;
+		new_cr |= UART01x_CR_UARTEN | UART011_CR_TXE;
+		pl011_write(new_cr, uap, REG_CR);
+	}
 
 	while (count-- > 0) {
 		if (*s == '\n')
 			pl011_console_putchar(&uap->port, '\r');
 		pl011_console_putchar(&uap->port, *s++);
 	}
-	do
-		status = readw(uap->port.membase + UART01x_FR);
-	while (status & UART01x_FR_BUSY);
-	writew(old_cr, uap->port.membase + UART011_CR);
+
+	while ((pl011_read(uap, REG_FR) ^ uap->vendor->inv_fr)
+		& uap->vendor->fr_busy)
+		cpu_relax();
+
+	if (!uap->vendor->always_enabled)
+		pl011_write(old_cr, uap, REG_CR);
 }
 
 #endif  /* !CONFIG_RAW_PRINTK */
@@ -2366,6 +2365,9 @@ static int pl011_console_setup(struct console *co, char *options)
 		else
 			pl011_console_get_options(uap, &baud, &parity, &bits);
 	}
+
+	if (IS_ENABLED(CONFIG_RAW_PRINTK))
+		clk_enable(uap->clk);
 
 	return uart_set_options(&uap->port, co, baud, parity, bits, flow);
 }
