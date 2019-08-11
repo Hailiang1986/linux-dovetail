@@ -474,7 +474,7 @@ int trace_print_lat_fmt(struct trace_seq *s, struct trace_entry *entry)
 	trace_seq_printf(s, "%c%c%c",
 			 irqs_off, need_resched, hardsoft_irq);
 
-	if (!oob && entry->preempt_count)
+	if (entry->preempt_count)
 		trace_seq_printf(s, "%x", entry->preempt_count);
 	else
 		trace_seq_putc(s, '.');
