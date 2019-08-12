@@ -87,7 +87,7 @@ END(native_usergs_sysret64)
 
 .macro TRACE_IRQS_ON_DEBUG
 	call	debug_stack_set_zero
-	TRACE_IRQS_ON
+	TRACE_IRQS_ON_PIPELINED
 	call	debug_stack_reset
 .endm
 
