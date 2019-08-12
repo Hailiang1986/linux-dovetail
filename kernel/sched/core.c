@@ -8116,6 +8116,7 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 	}
 
 	switch_to(prev, next, last);
+	barrier();
 
 	if (check_hard_irqs_disabled())
 		hard_irqs_disabled();
