@@ -399,6 +399,7 @@ struct regmap_config {
 	size_t max_raw_write;
 
 	bool fast_io;
+	bool oob_io;
 
 	unsigned int max_register;
 	const struct regmap_access_table *wr_table;
