@@ -1488,17 +1488,24 @@ notrace void check_inband_stage(void)
 
 	hard_smp_local_irq_restore(flags);
 
-	irq_pipeline_oops();
-
 	if (this_stage != &inband_stage)
 		pr_err("IRQ pipeline: some code running in oob context '%s'\n"
 		       "              called an in-band only routine\n",
 		       this_stage->name);
-	else
-		pr_err("IRQ pipeline: oob stage is stalled, "
-		       "probably caused by a bug.\n"
-		       "              A critical section may have been "
-		       "left unterminated.\n");
+	else {
+		pr_err("IRQ pipeline: oob stage found stalled while modifying in-band\n"
+		       "              interrupt state and/or running sleeping code\n");
+		/*
+		 * This will disable all further pipeline debug
+		 * checks, since a wrecked interrupt state is likely
+		 * to trigger many of them, ending up in a terrible
+		 * mess. IOW, the current situation must be fixed
+		 * prior to investigating any subsequent issue that
+		 * might still exist.
+		 */
+		irq_pipeline_oopsing = true;
+	}
+
 	dump_stack();
 }
 EXPORT_SYMBOL(check_inband_stage);
