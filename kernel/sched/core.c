@@ -8167,6 +8167,7 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 {
 	struct task_struct *next, *prev, *last;
 	struct mm_struct *prev_mm, *next_mm;
+	unsigned long pc __maybe_unused;
 	bool inband = false;
 
 	if (leave_inband) {
@@ -8212,6 +8213,31 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 		out->active_mm = NULL;
 	}
 
+	/*
+	 * Tasks running out-of-band may alter the (in-band)
+	 * preemption count as long as they don't trigger an in-band
+	 * rescheduling, which Dovetail properly blocks.
+	 *
+	 * If the preemption count is not stack-based but a global
+	 * per-cpu variable instead, changing it has a globally
+	 * visible side-effect though, which is a problem if the
+	 * out-of-band task is preempted and schedules away before the
+	 * change is rolled back: this may cause the in-band context
+	 * to later resume with a broken preemption count.
+	 *
+	 * For this reason, the preemption count of any context which
+	 * blocks from the out-of-band stage is carried over and
+	 * restored across switches, emulating a stack-based
+	 * storage.
+	 *
+	 * Eventually, the count is reset to FORK_PREEMPT_COUNT upon
+	 * transition from out-of-band to in-band stage, reinstating
+	 * the value in effect when the converse transition happened
+	 * at some point before.
+	 */
+	if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
+		pc = preempt_count();
+
 	switch_to(prev, next, last);
 	barrier();
 
@@ -8227,13 +8253,16 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 	 * level as/if required.
 	 */
 	if (unlikely(!leave_inband && !test_thread_local_flags(_TLF_OOB))) {
-		if (!IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT)) {
-			WARN_ON_ONCE(dovetail_debug() &&
-				!(preempt_count() & STAGE_MASK));
+		if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
+			preempt_count_set(FORK_PREEMPT_COUNT);
+		else if (unlikely(dovetail_debug() &&
+					!(preempt_count() & STAGE_MASK)))
+			WARN_ON_ONCE(1);
+		else
 			preempt_count_sub(STAGE_OFFSET);
-		}
 		inband = true;
-	}
+	} else if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
+		preempt_count_set(pc);
 
 	arch_dovetail_switch_finish(leave_inband);
 
