@@ -339,20 +339,14 @@ EXPORT_SYMBOL(inband_irq_disable);
  */
 notrace unsigned long inband_irqs_disabled(void)
 {
-	/*
-	 * We don't have to guard against CPU migration here, because
-	 * we are testing the inband stage stall from that
-	 * stage. Since may only migrate if our current stage is
-	 * unstalled, such state won't have changed once resuming on
-	 * the destination CPU.
-	 *
-	 * CAUTION: the assumption above only holds when testing the
-	 * inband stall bit from the inband stage. Particularly, it
-	 * does NOT hold when testing the oob stall bit from the
-	 * inband stage. In that latter situation, hard irqs must be
-	 * off in SMP.
-	 */
-	return __test_stage_bit(STAGE_STALL_BIT, this_inband_staged());
+	unsigned long flags;
+	int ret;
+
+	flags = hard_smp_local_irq_save();
+	ret =  __test_stage_bit(STAGE_STALL_BIT, this_inband_staged());
+	hard_smp_local_irq_restore(flags);
+
+	return ret;
 }
 EXPORT_SYMBOL(inband_irqs_disabled);
 
@@ -488,10 +482,8 @@ notrace bool stage_disabled(void)
 
 	if (!hard_irqs_disabled()) {
 		ret = false;
-		/* See comment in inband_irqs_disabled(). */
 		if (running_inband())
-			ret = __test_stage_bit(STAGE_STALL_BIT,
-					       this_inband_staged());
+			ret = inband_irqs_disabled();
 	}
 
 	return ret;
