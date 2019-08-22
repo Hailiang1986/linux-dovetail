@@ -898,6 +898,9 @@ bool notrace rcu_is_watching(void)
 {
 	bool ret;
 
+	if (running_oob())
+		return true;
+
 	preempt_disable_notrace();
 	ret = !rcu_dynticks_curr_cpu_in_eqs();
 	preempt_enable_notrace();
