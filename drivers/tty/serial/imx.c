@@ -1929,30 +1929,33 @@ static void imx_uart_console_putchar(struct uart_port *port, int ch)
  * Interrupts are disabled on entering
  */
 static void
-imx_uart_console_write(struct console *co, const char *s, unsigned int count)
+__imx_uart_console_write(struct console *co, const char *s, unsigned int count, int locked)
 {
 	struct imx_port *sport = imx_uart_ports[co->index];
 	struct imx_port_ucrs old_ucr;
 	unsigned int ucr1;
 	unsigned long flags = 0;
-	int locked = 1;
 	int retval;
 
-	retval = clk_enable(sport->clk_per);
-	if (retval)
-		return;
-	retval = clk_enable(sport->clk_ipg);
-	if (retval) {
-		clk_disable(sport->clk_per);
-		return;
+	if (!IS_ENABLED(CONFIG_RAW_PRINTK)) {
+		retval = clk_enable(sport->clk_per);
+		if (retval)
+			return;
+		retval = clk_enable(sport->clk_ipg);
+		if (retval) {
+			clk_disable(sport->clk_per);
+			return;
+		}
 	}
 
-	if (sport->port.sysrq)
-		locked = 0;
-	else if (oops_in_progress)
-		locked = spin_trylock_irqsave(&sport->port.lock, flags);
-	else
-		spin_lock_irqsave(&sport->port.lock, flags);
+	if (locked) {
+		if (sport->port.sysrq)
+			locked = 0;
+		else if (oops_in_progress)
+			locked = spin_trylock_irqsave(&sport->port.lock, flags);
+		else
+			spin_lock_irqsave(&sport->port.lock, flags);
+	}
 
 	/*
 	 *	First, save UCR1/2/3 and then disable interrupts
@@ -1982,8 +1985,22 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
 	if (locked)
 		spin_unlock_irqrestore(&sport->port.lock, flags);
 
-	clk_disable(sport->clk_ipg);
-	clk_disable(sport->clk_per);
+	if (!IS_ENABLED(CONFIG_RAW_PRINTK)) {
+		clk_disable(sport->clk_ipg);
+		clk_disable(sport->clk_per);
+	}
+}
+
+static void
+imx_uart_console_write(struct console *co, const char *s, unsigned int count)
+{
+	return __imx_uart_console_write(co, s, count, 1);
+}
+
+static void
+imx_uart_console_write_raw(struct console *co, const char *s, unsigned int count)
+{
+	return __imx_uart_console_write(co, s, count, 0);
 }
 
 /*
@@ -2093,6 +2110,10 @@ imx_uart_console_setup(struct console *co, char *options)
 	retval = clk_prepare(sport->clk_per);
 	if (retval)
 		clk_unprepare(sport->clk_ipg);
+	else if (IS_ENABLED(CONFIG_RAW_PRINTK)) {
+		clk_enable(sport->clk_ipg);
+		clk_enable(sport->clk_per);
+	}
 
 error_console:
 	return retval;
@@ -2102,6 +2123,9 @@ static struct uart_driver imx_uart_uart_driver;
 static struct console imx_uart_console = {
 	.name		= DEV_NAME,
 	.write		= imx_uart_console_write,
+#ifdef CONFIG_RAW_PRINTK
+	.write_raw	= imx_uart_console_write_raw,
+#endif
 	.device		= uart_console_device,
 	.setup		= imx_uart_console_setup,
 	.flags		= CON_PRINTBUFFER,
