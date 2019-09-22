@@ -910,6 +910,12 @@ static inline void incr_irq_kstat(struct irq_desc *desc)
 		kstat_incr_irqs_this_cpu(desc);
 }
 
+static inline bool is_active_edge_event(struct irq_desc *desc)
+{
+	return (desc->istate & IRQS_PENDING) &&
+		!irqd_irq_disabled(&desc->irq_data);
+}
+
 bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off, oob */
 {
 	struct irq_stage_data *oobd = this_oob_staged();
@@ -956,7 +962,18 @@ bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off, oob */
 		return true;
 
 	set_stage_bit(STAGE_STALL_BIT, oobd);
-	do_oob_irq(desc);
+
+	if (unlikely(desc->istate & IRQS_EDGE)) {
+		do {
+			if (is_active_edge_event(desc))  {
+				if (irqd_irq_masked(&desc->irq_data))
+					unmask_irq(desc);
+			}
+			do_oob_irq(desc);
+		} while (is_active_edge_event(desc));
+	} else
+		do_oob_irq(desc);
+
 	clear_stage_bit(STAGE_STALL_BIT, oobd);
 
 	/*
