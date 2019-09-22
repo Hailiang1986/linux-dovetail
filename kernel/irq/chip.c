@@ -872,6 +872,7 @@ void handle_edge_irq(struct irq_desc *desc)
 
 	if (on_pipeline_entry()) {
 		chip->irq_ack(&desc->irq_data);
+		desc->istate |= IRQS_EDGE;
 		handle_oob_irq(desc);
 		goto out_unlock;
 	}
@@ -905,6 +906,8 @@ void handle_edge_irq(struct irq_desc *desc)
 		 !irqd_irq_disabled(&desc->irq_data));
 
 out_unlock:
+	if (on_pipeline_entry())
+		desc->istate &= ~IRQS_EDGE;
 	raw_spin_unlock(&desc->lock);
 }
 EXPORT_SYMBOL(handle_edge_irq);
@@ -933,6 +936,7 @@ void handle_edge_eoi_irq(struct irq_desc *desc)
 	}
 
 	if (on_pipeline_entry()) {
+		desc->istate |= IRQS_EDGE;
 		if (handle_oob_irq(desc))
 			goto out_eoi;
 		goto out;
@@ -961,6 +965,8 @@ void handle_edge_eoi_irq(struct irq_desc *desc)
 out_eoi:
 	chip->irq_eoi(&desc->irq_data);
 out:
+	if (on_pipeline_entry())
+		desc->istate &= ~IRQS_EDGE;
 	raw_spin_unlock(&desc->lock);
 }
 #endif
