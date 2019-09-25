@@ -872,6 +872,9 @@ static void do_oob_irq(struct irq_desc *desc)
 		ret = action->handler(irq, dev_id);
 		trace_irq_handler_exit(irq, action, ret);
 	} else {
+		desc->istate &= ~IRQS_PENDING;
+		irqd_set(&desc->irq_data, IRQD_IRQ_INPROGRESS);
+		raw_spin_unlock(&desc->lock);
 		for_each_action_of_desc(desc, action) {
 			trace_irq_handler_entry(irq, action);
 			dev_id = action->dev_id;
@@ -879,6 +882,8 @@ static void do_oob_irq(struct irq_desc *desc)
 			trace_irq_handler_exit(irq, action, res);
 			ret |= res;
 		}
+		raw_spin_lock(&desc->lock);
+		irqd_clear(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 	}
 done:
 	if (likely(ret & IRQ_HANDLED)) {
