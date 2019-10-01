@@ -103,8 +103,7 @@ void __init init_IRQ(void)
 asmlinkage int __exception_irq_entry
 handle_arch_irq_pipelined(struct pt_regs *regs)
 {
-	handle_arch_irq(regs);
-	return leave_irq_pipeline(regs);
+	return handle_irq_pipelined(regs);
 }
 #endif
 
