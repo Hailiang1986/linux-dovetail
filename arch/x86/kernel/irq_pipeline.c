@@ -175,7 +175,7 @@ void arch_do_IRQ_pipelined(struct irq_desc *desc)
 	set_irq_regs(old_regs);
 }
 
-__visible unsigned int __irq_entry handle_arch_irq_pipelined(struct pt_regs *regs)
+void handle_arch_irq(struct pt_regs *regs)
 {
 	unsigned int irq, vector = ~regs->orig_ax;
 	struct irq_desc *desc;
@@ -186,14 +186,18 @@ __visible unsigned int __irq_entry handle_arch_irq_pipelined(struct pt_regs *reg
 		desc = __this_cpu_read(vector_irq[vector]);
 		if (unlikely(desc == NULL)) {
 			pr_err("IRQ pipeline: unhandled vector %#.2x\n", vector);
-			return 0;
+			return;
 		}
 		irq = irq_desc_get_irq(desc);
 	}
 
 	generic_pipeline_irq(irq, regs);
+}
 
-	return leave_irq_pipeline(regs);
+__visible unsigned int __irq_entry
+handle_arch_irq_pipelined(struct pt_regs *regs)
+{
+	return handle_irq_pipelined(regs);
 }
 
 static int sipic_irq_map(struct irq_domain *d, unsigned int irq,
