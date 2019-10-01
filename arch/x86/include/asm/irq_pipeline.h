@@ -96,6 +96,8 @@ unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs);
 
 void pipelined_fault_exit(unsigned long combo);
 
+void handle_arch_irq(struct pt_regs *regs);
+
 #else /* !CONFIG_IRQ_PIPELINE */
 
 struct pt_regs;
