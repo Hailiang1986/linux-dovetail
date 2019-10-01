@@ -47,38 +47,6 @@ static __always_inline void synchronize_pipeline_on_irq(void)
 void dovetail_call_mayday(struct thread_info *ti,
 			  struct pt_regs *regs);
 
-static __always_inline bool leave_irq_pipeline(struct pt_regs *regs)
-{
-	/*
-	 * We have to synchronize the logs because interrupts might
-	 * have been logged while we were busy handling an OOB event
-	 * coming from the hardware:
-	 *
-	 * - as a result of calling an OOB handler which in turned
-	 * posted them.
-	 *
-	 * - because we posted them directly for scheduling the
-	 * interrupt to happen from the inband stage.
-	 *
-	 * This also means that hardware-originated OOB events have
-	 * higher precedence when received than software-originated
-	 * ones, which are synced once all IRQ flow handlers involved
-	 * in the interrupt have run.
-	 */
-	synchronize_pipeline_on_irq();
-
-#ifdef CONFIG_DOVETAIL
-	/*
-	 * Sending MAYDAY is in essence a rare case, so prefer test
-	 * then maybe clear over test_and_clear.
-	 */
-	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY))
-		dovetail_call_mayday(current_thread_info(), regs);
-#endif
-
-	return running_inband() && !irqs_disabled();
-}
-
 bool handle_oob_irq(struct irq_desc *desc);
 
 void arch_do_IRQ_pipelined(struct irq_desc *desc);
@@ -113,6 +81,8 @@ static inline bool inband_irq_pending(void)
 
 	return stage_irqs_pending(this_inband_staged());
 }
+
+int handle_irq_pipelined(struct pt_regs *regs);
 
 extern struct irq_domain *synthetic_irq_domain;
 
