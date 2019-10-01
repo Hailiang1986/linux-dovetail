@@ -1064,7 +1064,6 @@ void restore_stage_on_irq(struct irq_stage_data *prevd)
  */
 int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 {
-	struct irq_stage_data *prevd;
 	struct pt_regs *old_regs;
 	struct irq_desc *desc;
 	int ret = 0;
@@ -1108,20 +1107,55 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	 * call its out-of-band IRQ handler from handle_oob_irq(),
 	 * then irq_exit_pipeline() to unwind the interrupt context.
 	 */
-	prevd = switch_stage_on_irq();
 	copy_timer_regs(desc, regs);
-	irq_enter_pipeline();
 	preempt_count_add(PIPELINE_OFFSET);
 	generic_handle_irq_desc(desc);
 	preempt_count_sub(PIPELINE_OFFSET);
-	irq_exit_pipeline();
 	incr_irq_kstat(desc);
-	restore_stage_on_irq(prevd);
 out:
 	set_irq_regs(old_regs);
 	trace_irq_pipeline_exit(irq);
 
 	return ret;
+}
+
+int handle_irq_pipelined(struct pt_regs *regs)
+{
+	struct irq_stage_data *prevd;
+
+	prevd = switch_stage_on_irq();
+	irq_enter_pipeline();
+	handle_arch_irq(regs);
+	irq_exit_pipeline();
+	restore_stage_on_irq(prevd);
+	/*
+	 * We have to synchronize the logs because interrupts might
+	 * have been logged while we were busy handling an OOB event
+	 * coming from the hardware:
+	 *
+	 * - as a result of calling an OOB handler which in turned
+	 * posted them.
+	 *
+	 * - because we posted them directly for scheduling the
+	 * interrupt to happen from the inband stage.
+	 *
+	 * This also means that hardware-originated OOB events have
+	 * higher precedence when received than software-originated
+	 * ones, which are synced once all IRQ flow handlers involved
+	 * in the interrupt have run.
+	 */
+	synchronize_pipeline_on_irq();
+
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * Sending MAYDAY is in essence a rare case, so prefer test
+	 * then maybe clear over test_and_clear.
+	 */
+	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY))
+		dovetail_call_mayday(current_thread_info(), regs);
+#endif
+
+	return running_inband() && !irqs_disabled();
 }
 
 /**
