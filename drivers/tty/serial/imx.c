@@ -1997,11 +1997,13 @@ imx_uart_console_write(struct console *co, const char *s, unsigned int count)
 	return __imx_uart_console_write(co, s, count, 1);
 }
 
+#ifdef CONFIG_RAW_PRINTK
 static void
 imx_uart_console_write_raw(struct console *co, const char *s, unsigned int count)
 {
 	return __imx_uart_console_write(co, s, count, 0);
 }
+#endif
 
 /*
  * If the port was already initialised (eg, by a boot loader),
