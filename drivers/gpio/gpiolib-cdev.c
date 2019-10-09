@@ -682,7 +682,7 @@ static ssize_t lineevent_oob_read(struct file *file,
 				size_t count)
 {
 	struct lineevent_state *le = file->private_data;
-	struct gpioevent_data ge;
+	struct gpioevent_data ge = { 0 };
 	unsigned long flags;
 	int ret;
 
