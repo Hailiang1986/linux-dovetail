@@ -11,6 +11,7 @@
 #include <linux/irq_pipeline.h>
 #include <linux/irq_work.h>
 #include <linux/jhash.h>
+#include <linux/debug_locks.h>
 #include <dovetail/irq.h>
 #include <trace/events/irq.h>
 #include "internals.h"
@@ -1509,6 +1510,18 @@ void irq_local_work_raise(void)
 
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
 
+#ifdef CONFIG_LOCKDEP
+static inline bool lockdep_on_error(void)
+{
+	return !debug_locks;
+}
+#else
+static inline bool lockdep_on_error(void)
+{
+	return false;
+}
+#endif
+
 notrace void check_inband_stage(void)
 {
 	struct irq_stage *this_stage;
@@ -1523,7 +1536,7 @@ notrace void check_inband_stage(void)
 		return;
 	}
 
-	if (in_nmi() || irq_pipeline_oopsing) {
+	if (in_nmi() || irq_pipeline_oopsing || lockdep_on_error()) {
 		hard_smp_local_irq_restore(flags);
 		return;
 	}
