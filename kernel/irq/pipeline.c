@@ -1031,8 +1031,6 @@ struct irq_stage_data *switch_stage_on_irq(void)
 static __always_inline
 void restore_stage_on_irq(struct irq_stage_data *prevd)
 {
-	struct irq_stage_data *nextd;
-
 	/*
 	 * CPU migration and/or stage switching over
 	 * irq_exit_pipeline() are allowed.  Our exit logic is as
@@ -1045,11 +1043,9 @@ void restore_stage_on_irq(struct irq_stage_data *prevd)
 	 *    oob        inband    nop
 	 *    inband     inband    nop
 	 */
-	if (prevd->stage == &inband_stage) {
-		nextd = this_oob_staged();
-		if (current_irq_staged == nextd)
-			switch_inband(prevd);
-	}
+	if (prevd->stage == &inband_stage &&
+		current_irq_staged == this_oob_staged())
+		switch_inband(this_inband_staged());
 }
 
 /**
