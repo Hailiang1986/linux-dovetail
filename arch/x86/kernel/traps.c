@@ -93,9 +93,11 @@ unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
 
 	flags = hard_local_irq_save();
 
-	if (hard_irqs_disabled_flags(flags))
+	if (hard_irqs_disabled_flags(flags)) {
 		nosync = test_and_set_stage_bit(STAGE_STALL_BIT,
 					this_inband_staged());
+		trace_hardirqs_off();
+	}
 	if (oob_stage_present())
 		hard_local_irq_enable();
 
@@ -113,6 +115,7 @@ void pipelined_fault_exit(unsigned long combo)
 	flags = irqs_split_flags(combo, &nosync);
 	if (!nosync) {
 		hard_local_irq_disable();
+		trace_hardirqs_on();
 		clear_stage_bit(STAGE_STALL_BIT, this_inband_staged());
 		if (!hard_irqs_disabled_flags(flags))
 			hard_local_irq_enable();
@@ -125,7 +128,7 @@ void pipelined_fault_exit(unsigned long combo)
 static inline void cond_local_irq_enable(struct pt_regs *regs)
 {
 	if (regs->flags & X86_EFLAGS_IF)
-		hard_local_irq_enable();
+		local_irq_enable_full();
 }
 
 static inline void cond_local_irq_disable(struct pt_regs *regs)
@@ -322,13 +325,15 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 	if (!user_mode(regs) && fixup_bug(regs, trapnr))
 		return;
 
+	flags = pipelined_fault_entry(trapnr, regs);
+
 	if (notify_die(DIE_TRAP, str, regs, error_code, trapnr, signr) !=
 			NOTIFY_STOP) {
 		cond_local_irq_enable(regs);
-		flags = pipelined_fault_entry(trapnr, regs);
 		do_trap(trapnr, signr, str, regs, error_code, sicode, addr);
-		pipelined_fault_exit(flags);
 	}
+
+	pipelined_fault_exit(flags);
 }
 
 #define IP ((void __user *)uprobe_get_trap_addr(regs))
@@ -485,13 +490,13 @@ dotraplinkage void do_bounds(struct pt_regs *regs, long error_code)
 	const struct mpx_bndcsr *bndcsr;
 	unsigned long flags;
 
+	flags = pipelined_fault_entry(X86_TRAP_BR, regs);
+
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	if (notify_die(DIE_TRAP, "bounds", regs, error_code,
 			X86_TRAP_BR, SIGSEGV) == NOTIFY_STOP)
 		return;
 	cond_local_irq_enable(regs);
-
-	flags = pipelined_fault_entry(X86_TRAP_BR, regs);
 
 	if (!user_mode(regs))
 		die("bounds", regs, error_code);
@@ -578,24 +583,26 @@ do_general_protection(struct pt_regs *regs, long error_code)
 	struct task_struct *tsk;
 	unsigned long flags;
 
+	flags = pipelined_fault_entry(X86_TRAP_GP, regs);
+
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 	cond_local_irq_enable(regs);
 
 	if (static_cpu_has(X86_FEATURE_UMIP)) {
 		if (user_mode(regs) && fixup_umip_exception(regs))
-			return;
+			goto out;
 	}
 
 	if (v8086_mode(regs)) {
 		hard_local_irq_enable();
 		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
-		return;
+		goto out;
 	}
 
 	tsk = current;
 	if (!user_mode(regs)) {
 		if (fixup_exception(regs, X86_TRAP_GP, error_code, 0))
-			return;
+			goto out;
 
 		tsk->thread.error_code = error_code;
 		tsk->thread.trap_nr = X86_TRAP_GP;
@@ -607,15 +614,13 @@ do_general_protection(struct pt_regs *regs, long error_code)
 		 */
 		if (!preemptible() && kprobe_running() &&
 		    kprobe_fault_handler(regs, X86_TRAP_GP))
-			return;
+			goto out;
 
 		if (notify_die(DIE_GPF, desc, regs, error_code,
 			       X86_TRAP_GP, SIGSEGV) != NOTIFY_STOP)
 			die(desc, regs, error_code);
-		return;
+		goto out;
 	}
-
-	flags = pipelined_fault_entry(X86_TRAP_GP, regs);
 
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_GP;
@@ -623,7 +628,7 @@ do_general_protection(struct pt_regs *regs, long error_code)
 	show_signal(tsk, SIGSEGV, "", desc, regs, error_code);
 
 	force_sig(SIGSEGV);
-
+out:
 	pipelined_fault_exit(flags);
 }
 NOKPROBE_SYMBOL(do_general_protection);
@@ -664,15 +669,17 @@ dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 		goto exit;
 #endif
 
+	flags = pipelined_fault_entry(X86_TRAP_BP, regs);
+
 	if (notify_die(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
 			SIGTRAP) == NOTIFY_STOP)
-		goto exit;
+		goto exit_fault;
 
 	cond_local_irq_enable(regs);
-	flags = pipelined_fault_entry(X86_TRAP_BP, regs);
 	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, 0, NULL);
-	pipelined_fault_exit(flags);
 	cond_local_irq_disable(regs);
+exit_fault:
+	pipelined_fault_exit(flags);
 
 exit:
 	ist_exit(regs);
@@ -809,7 +816,7 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 		     is_sysenter_singlestep(regs))) {
 		dr6 &= ~DR_STEP;
 		if (!dr6)
-			goto exit;
+			goto out;
 		/*
 		 * else we might have gotten a single-step trap and hit a
 		 * watchpoint at the same time, in which case we should fall
@@ -830,8 +837,10 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 
 #ifdef CONFIG_KPROBES
 	if (kprobe_debug_handler(regs))
-		goto exit;
+		goto out;
 #endif
+
+	flags = pipelined_fault_entry(X86_TRAP_DB, regs);
 
 	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, error_code,
 							SIGTRAP) == NOTIFY_STOP)
@@ -866,15 +875,14 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 		regs->flags &= ~X86_EFLAGS_TF;
 	}
 	si_code = get_si_code(tsk->thread.debugreg6);
-	if (tsk->thread.debugreg6 & (DR_STEP | DR_TRAP_BITS) || user_icebp) {
-		flags = pipelined_fault_entry(X86_TRAP_DB, regs);
+	if (tsk->thread.debugreg6 & (DR_STEP | DR_TRAP_BITS) || user_icebp)
 		send_sigtrap(regs, error_code, si_code);
-		pipelined_fault_exit(flags);
-	}
 	cond_local_irq_disable(regs);
 	debug_stack_usage_dec();
 
 exit:
+	pipelined_fault_exit(flags);
+out:
 	ist_exit(regs);
 }
 NOKPROBE_SYMBOL(do_debug);
@@ -893,11 +901,13 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	char *str = (trapnr == X86_TRAP_MF) ? "fpu exception" :
 						"simd exception";
 
+	flags = pipelined_fault_entry(trapnr, regs);
+
 	cond_local_irq_enable(regs);
 
 	if (!user_mode(regs)) {
 		if (fixup_exception(regs, trapnr, error_code, 0))
-			return;
+			goto out;
 
 		task->thread.error_code = error_code;
 		task->thread.trap_nr = trapnr;
@@ -905,7 +915,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 		if (notify_die(DIE_TRAP, str, regs, error_code,
 					trapnr, SIGFPE) != NOTIFY_STOP)
 			die(str, regs, error_code);
-		return;
+		goto out;
 	}
 
 	/*
@@ -919,13 +929,11 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	si_code = fpu__exception_code(fpu, trapnr);
 	/* Retry when we get spurious exceptions: */
 	if (!si_code)
-		return;
-
-	flags = pipelined_fault_entry(trapnr, regs);
+		goto out;
 
 	force_sig_fault(SIGFPE, si_code,
 			(void __user *)uprobe_get_trap_addr(regs));
-
+out:
 	pipelined_fault_exit(flags);
 }
 
@@ -959,9 +967,9 @@ do_device_not_available(struct pt_regs *regs, long error_code)
 	if (!boot_cpu_has(X86_FEATURE_FPU) && (cr0 & X86_CR0_EM)) {
 		struct math_emu_info info = { };
 
-		cond_local_irq_enable(regs);
-
 		flags = pipelined_fault_entry(X86_TRAP_NM, regs);
+
+		cond_local_irq_enable(regs);
 
 		info.regs = regs;
 		math_emulate(&info);
