@@ -312,37 +312,41 @@ void oob_trampoline(void)
 
 int inband_switch_tail(void)
 {
-	bool inband;
+	bool oob;
 
 	check_hard_irqs_disabled();
 
 	/*
 	 * We may run this code either over the inband or oob
 	 * contexts. If inband, we may have a thread blocked in
-	 * dovetail_leave_inband(), waiting for the co-kernel to
+	 * dovetail_leave_inband(), waiting for the companion core to
 	 * schedule it back in over the oob context, in which case
 	 * finalize_oob_transition() should take care of it. If oob,
-	 * the co-kernel just switched us back, and we may update the
+	 * the core just switched us back, and we may update the
 	 * context markers before returning to context_switch().
 	 *
-	 * CAUTION: The preemption count may not reflect the active
-	 * stage yet, so use the current stage pointer to determine
-	 * which one we are on.
+	 * Since the preemption count does not reflect the active
+	 * stage yet upon inband -> oob transition, we figure out
+	 * which one we are on by testing _TLF_OFFSTAGE. Having this
+	 * bit set when running the inband switch tail code means that
+	 * we are completing such transition for the current task,
+	 * switched in by dovetail_context_switch() over the oob
+	 * stage. If so, update the context markers appropriately.
 	 */
-	inband = current_irq_stage == &inband_stage;
-	if (inband) {
-		finalize_oob_transition();
-		hard_local_irq_enable();
-	} else {
+	oob = test_thread_local_flags(_TLF_OFFSTAGE);
+	if (oob) {
 		set_thread_local_flags(_TLF_OOB);
 		if (!IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT)) {
 			WARN_ON_ONCE(dovetail_debug() &&
 				(preempt_count() & STAGE_MASK));
 			preempt_count_add(STAGE_OFFSET);
 		}
+	} else {
+		finalize_oob_transition();
+		hard_local_irq_enable();
 	}
 
-	return !inband;
+	return oob;
 }
 
 void __weak inband_clock_was_set(void)
