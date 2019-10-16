@@ -48,7 +48,6 @@ struct irq_stage_data {
 /* Per-CPU pipeline descriptor. */
 struct irq_pipeline_data {
 	struct irq_stage_data stages[2];
-	int __curr;
 	struct pt_regs tick_regs;
 #ifdef CONFIG_DOVETAIL
 	struct task_struct *task_inflight;
@@ -117,8 +116,7 @@ static inline struct irq_stage_data *this_oob_staged(void)
 
 static inline struct irq_stage_data *__current_irq_staged(void)
 {
-	int index = raw_cpu_read(irq_pipeline.__curr);
-	return &raw_cpu_ptr(irq_pipeline.stages)[index];
+	return &raw_cpu_ptr(irq_pipeline.stages)[stage_level()];
 }
 
 /**
@@ -128,20 +126,15 @@ static inline struct irq_stage_data *__current_irq_staged(void)
 #define current_irq_staged __current_irq_staged()
 
 static inline
-void __set_current_irq_staged(struct irq_stage_data *pd)
+void check_staged_locality(struct irq_stage_data *pd)
 {
-	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
 	/*
 	 * Setting our context with another processor's is a really
 	 * bad idea, our caller definitely went loopy.
 	 */
-	if (WARN_ON_ONCE(raw_smp_processor_id() != pd->cpu)) {
-		p->__curr = pd - &per_cpu(irq_pipeline.stages, pd->cpu)[0];
-		return;
-	}
+	WARN_ON_ONCE(raw_smp_processor_id() != pd->cpu);
 #endif
-	p->__curr = pd - &raw_cpu_ptr(irq_pipeline.stages)[0];
 }
 
 /**
@@ -155,7 +148,7 @@ void __set_current_irq_staged(struct irq_stage_data *pd)
 static inline
 void switch_oob(struct irq_stage_data *pd)
 {
-	__set_current_irq_staged(pd);
+	check_staged_locality(pd);
 	if (!(preempt_count() & STAGE_MASK))
 		preempt_count_add(STAGE_OFFSET);
 }
@@ -163,7 +156,7 @@ void switch_oob(struct irq_stage_data *pd)
 static inline
 void switch_inband(struct irq_stage_data *pd)
 {
-	__set_current_irq_staged(pd);
+	check_staged_locality(pd);
 	if (preempt_count() & STAGE_MASK)
 		preempt_count_sub(STAGE_OFFSET);
 }
