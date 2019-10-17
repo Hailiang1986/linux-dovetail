@@ -95,8 +95,7 @@ void prepare_inband_switch(struct task_struct *next)
 {
 	struct task_struct *prev = current;
 
-	if (test_ti_local_flags(task_thread_info(next), _TLF_DOVETAIL) ||
-	    test_ti_local_flags(task_thread_info(prev), _TLF_DOVETAIL)) {
+	if (test_ti_local_flags(task_thread_info(next), _TLF_DOVETAIL)) {
 		__this_cpu_write(irq_pipeline.rqlock_owner, prev);
 		inband_event_notify(INBAND_TASK_SCHEDULE, next);
 	}
