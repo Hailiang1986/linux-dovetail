@@ -118,7 +118,7 @@ static inline
 int hard_spin_trylock(struct raw_spinlock *rlock)
 {
 	if (do_raw_spin_trylock(rlock)) {
-		hard_lock_acquire(rlock, 1, _THIS_IP_);
+		hard_trylock_acquire(rlock, 1, _THIS_IP_);
 		return 1;
 	}
 	return 0;
