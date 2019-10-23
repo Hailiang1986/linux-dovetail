@@ -962,28 +962,19 @@ static irqreturn_t lineevent_oob_irq_handler(int irq, void *p)
 {
 	struct lineevent_state *le = p;
 	struct gpioevent_data ge;
-	unsigned long flags;
 
 	ge.timestamp = evl_ktime_monotonic();
 
 	if (lineevent_read_pin(le, &ge, false) == IRQ_NONE)
 		return IRQ_NONE;
 
-	raw_spin_lock_irqsave(&le->oob_state.lock, flags);
-
-	/*
-	 * XXX: evl_wait_queue services still serialize on the ugly
-	 * big lock, so we need to grab it here until we get rid of
-	 * it in the EVL core.
-	 */
-	xnlock_get(&nklock);
+	evl_spin_lock(&le->oob_state.wait.lock);
 	kfifo_put(&le->events, ge);
 	evl_wake_up_head(&le->oob_state.wait);
-	xnlock_put(&nklock);
-
 	evl_signal_poll_events(&le->oob_state.poll_head, POLLIN|POLLRDNORM);
+	evl_spin_unlock(&le->oob_state.wait.lock);
 
-	raw_spin_unlock_irqrestore(&le->oob_state.lock, flags);
+	evl_schedule();
 
 	return IRQ_HANDLED;
 }
@@ -997,12 +988,12 @@ static __poll_t lineevent_oob_poll(struct file *filep,
 
 	evl_poll_watch(&le->oob_state.poll_head, wait, NULL);
 
-	xnlock_get_irqsave(&nklock, flags);
+	evl_spin_lock_irqsave(&le->oob_state.wait.lock, flags);
 
 	if (!kfifo_is_empty(&le->events))
 		ready |= POLLIN|POLLRDNORM;
 
-	xnlock_put_irqrestore(&nklock, flags);
+	evl_spin_unlock_irqrestore(&le->oob_state.wait.lock, flags);
 
 	return ready;
 }
@@ -1023,7 +1014,7 @@ static ssize_t lineevent_oob_read(struct file *filep,
 		return -EPERM;
 
 	do {
-		raw_spin_lock_irqsave(&le->oob_state.lock, flags);
+		evl_spin_lock_irqsave(&le->oob_state.wait.lock, flags);
 
 		ret = kfifo_get(&le->events, &ge);
 		/*
@@ -1033,7 +1024,7 @@ static ssize_t lineevent_oob_read(struct file *filep,
 		if (!ret)
 			ret = 0;
 
-		raw_spin_unlock_irqrestore(&le->oob_state.lock, flags);
+		evl_spin_unlock_irqrestore(&le->oob_state.wait.lock, flags);
 
 		if (ret) {
 			ret = raw_copy_to_user(buf, &ge, sizeof(ge));
@@ -1055,7 +1046,6 @@ static int lineevent_init_oob_state(struct lineevent_state *le,
 {
 	evl_init_wait(&le->oob_state.wait, &evl_mono_clock, EVL_WAIT_PRIO);
 	evl_init_poll_head(&le->oob_state.poll_head);
-	raw_spin_lock_init(&le->oob_state.lock);
 
 	return request_irq(le->irq,
 			lineevent_oob_irq_handler,
