@@ -270,7 +270,7 @@ static inline int mutable_spin_trylock(struct raw_spinlock *rlock)
 {
 	if (in_pipeline()) {
 		if (do_raw_spin_trylock(rlock)) {
-			hard_lock_acquire(rlock, 1, _THIS_IP_);
+			hard_trylock_acquire(rlock, 1, _THIS_IP_);
 			return 1;
 		}
 		return 0;
@@ -287,7 +287,7 @@ int __mutable_spin_trylock_irqsave(struct raw_spinlock *rlock,
 		int __ret = 1;						\
 		if (in_pipeline()) {					\
 			if (do_raw_spin_trylock(__rlock)) {		\
-				hard_lock_acquire(__rlock, 1, _THIS_IP_); \
+				hard_trylock_acquire(__rlock, 1, _THIS_IP_); \
 				(__flags) = hard_local_save_flags();	\
 			} else						\
 				__ret = 0;				\
