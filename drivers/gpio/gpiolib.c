@@ -974,8 +974,6 @@ static irqreturn_t lineevent_oob_irq_handler(int irq, void *p)
 	evl_signal_poll_events(&le->oob_state.poll_head, POLLIN|POLLRDNORM);
 	evl_spin_unlock(&le->oob_state.wait.lock);
 
-	evl_schedule();
-
 	return IRQ_HANDLED;
 }
 
