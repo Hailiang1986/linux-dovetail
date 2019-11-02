@@ -233,8 +233,10 @@ static inline void do_raw_spin_unlock(raw_spinlock_t *lock) __releases(lock)
 	LOCK_ALTERNATIVES(lock, spin_lock, _raw_spin_lock(__RAWLOCK(lock)))
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
+
 # define raw_spin_lock_nested(lock, subclass) \
-	_raw_spin_lock_nested(lock, subclass)
+	LOCK_ALTERNATIVES(lock, spin_lock_nested, \
+		_raw_spin_lock_nested(__RAWLOCK(lock), subclass), subclass)
 
 # define raw_spin_lock_nest_lock(lock, nest_lock)			\
 	 do {								\
@@ -247,8 +249,9 @@ static inline void do_raw_spin_unlock(raw_spinlock_t *lock) __releases(lock)
  * warns about set-but-not-used variables when building with
  * CONFIG_DEBUG_LOCK_ALLOC=n and with W=1.
  */
-# define raw_spin_lock_nested(lock, subclass)		\
-	_raw_spin_lock(((void)(subclass), (lock)))
+# define raw_spin_lock_nested(lock, subclass)	\
+	LOCK_ALTERNATIVES(lock, spin_lock_nested, \
+		_raw_spin_lock(((void)(subclass), __RAWLOCK(lock))), subclass)
 # define raw_spin_lock_nest_lock(lock, nest_lock)	_raw_spin_lock(lock)
 #endif
 
