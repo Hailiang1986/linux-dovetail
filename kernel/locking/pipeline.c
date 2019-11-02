@@ -43,15 +43,30 @@ void __mutable_spin_lock(struct raw_spinlock *rlock)
 }
 EXPORT_SYMBOL(__mutable_spin_lock);
 
+void __mutable_spin_lock_nested(struct raw_spinlock *rlock, int subclass)
+{
+	struct mutable_spinlock *lock;
+	unsigned long __flags;
+
+	if (running_inband())
+		preempt_disable();
+
+	__flags = hard_local_irq_save();
+	hard_lock_acquire_nested(rlock, subclass, _RET_IP_);
+	lock = container_of(rlock, struct mutable_spinlock, rlock);
+	lock->hwflags = __flags;
+}
+EXPORT_SYMBOL(__mutable_spin_lock_nested);
+
 void __mutable_spin_unlock(struct raw_spinlock *rlock)
 {
 	struct mutable_spinlock *lock;
 	unsigned long __flags;
 
-	hard_lock_release(rlock, _RET_IP_);
+	/* Pick the flags before releasing the lock. */
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	__flags = lock->hwflags;
-	do_raw_spin_unlock(rlock);
+	hard_lock_release(rlock, _RET_IP_);
 	hard_local_irq_restore(__flags);
 
 	if (running_inband())
@@ -83,10 +98,10 @@ void __mutable_spin_unlock_irq(struct raw_spinlock *rlock)
 	struct mutable_spinlock *lock;
 	unsigned long __flags;
 
-	hard_lock_release(rlock, _RET_IP_);
+	/* Pick the flags before releasing the lock. */
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	__flags = lock->hwflags;
-	do_raw_spin_unlock(rlock);
+	hard_lock_release(rlock, _RET_IP_);
 
 	if (running_inband()) {
 		trace_hardirqs_on();
@@ -128,10 +143,10 @@ void __mutable_spin_unlock_irqrestore(struct raw_spinlock *rlock,
 	struct mutable_spinlock *lock;
 	unsigned long __flags;
 
-	hard_lock_release(rlock, _RET_IP_);
+	/* Pick the flags before releasing the lock. */
 	lock = container_of(rlock, struct mutable_spinlock, rlock);
 	__flags = lock->hwflags;
-	do_raw_spin_unlock(rlock);
+	hard_lock_release(rlock, _RET_IP_);
 
 	if (running_inband()) {
 		if (!flags) {
