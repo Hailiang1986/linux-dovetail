@@ -38,6 +38,15 @@
 			do_raw_spin_lock(__rlock);			\
 	} while (0)
 
+#define hard_lock_acquire_nested(__rlock, __subclass, __ip)		\
+	do {								\
+		if (irq_pipeline_debug_locking()) {			\
+			spin_acquire(&(__rlock)->dep_map, __subclass, 0, __ip); \
+			LOCK_CONTENDED(__rlock, do_raw_spin_trylock, do_raw_spin_lock); \
+		} else							\
+			do_raw_spin_lock(__rlock);			\
+	} while (0)
+
 #define hard_trylock_acquire(__rlock, __try, __ip)			\
 	do {								\
 		if (irq_pipeline_debug_locking())			\
@@ -48,6 +57,7 @@
 	do {								\
 		if (irq_pipeline_debug_locking())			\
 			spin_release(&(__rlock)->dep_map, 1, __ip);	\
+		do_raw_spin_unlock(__rlock);				\
 	} while (0)
 
 #if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
@@ -73,11 +83,24 @@ void hard_spin_lock(struct raw_spinlock *rlock)
 	hard_lock_acquire(rlock, 0, _THIS_IP_);
 }
 
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+static inline
+void hard_spin_lock_nested(struct raw_spinlock *rlock, int subclass)
+{
+	hard_lock_acquire_nested(rlock, subclass, _THIS_IP_);
+}
+#else
+static inline
+void hard_spin_lock_nested(struct raw_spinlock *rlock, int subclass)
+{
+	hard_spin_lock(rlock);
+}
+#endif
+
 static inline
 void hard_spin_unlock(struct raw_spinlock *rlock)
 {
 	hard_lock_release(rlock, _THIS_IP_);
-	do_raw_spin_unlock(rlock);
 }
 
 static inline
@@ -91,7 +114,6 @@ static inline
 void hard_spin_unlock_irq(struct raw_spinlock *rlock)
 {
 	hard_lock_release(rlock, _THIS_IP_);
-	do_raw_spin_unlock(rlock);
 	hard_local_irq_enable();
 }
 
@@ -100,7 +122,6 @@ void hard_spin_unlock_irqrestore(struct raw_spinlock *rlock,
 				 unsigned long flags)
 {
 	hard_lock_release(rlock, _THIS_IP_);
-	do_raw_spin_unlock(rlock);
 	hard_local_irq_restore(flags);
 }
 
@@ -162,6 +183,8 @@ int hard_spin_is_contended(struct raw_spinlock *rlock)
 
 #define hard_spin_lock_init(__rlock)	do { (void)(__rlock); } while (0)
 #define hard_spin_lock(__rlock)		__HARD_LOCK(__rlock)
+#define hard_spin_lock_nested(__rlock, __subclass)  \
+	do { __HARD_LOCK(__rlock); (void)(__subclass); } while (0)
 #define hard_spin_unlock(__rlock)	__HARD_UNLOCK(__rlock)
 #define hard_spin_lock_irq(__rlock)	__HARD_LOCK_IRQ(__rlock)
 #define hard_spin_unlock_irq(__rlock)	__HARD_UNLOCK_IRQ(__rlock)
