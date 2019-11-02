@@ -221,6 +221,7 @@ int hard_spin_is_contended(struct raw_spinlock *rlock)
  */
 
 void __mutable_spin_lock(struct raw_spinlock *rlock);
+void __mutable_spin_lock_nested(struct raw_spinlock *rlock, int subclass);
 
 static inline void mutable_spin_lock(struct raw_spinlock *rlock)
 {
@@ -230,14 +231,30 @@ static inline void mutable_spin_lock(struct raw_spinlock *rlock)
 		__mutable_spin_lock(rlock);
 }
 
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+static inline
+void mutable_spin_lock_nested(struct raw_spinlock *rlock, int subclass)
+{
+	if (in_pipeline())
+		hard_lock_acquire_nested(rlock, subclass, _THIS_IP_);
+	else
+		__mutable_spin_lock_nested(rlock, subclass);
+}
+#else
+static inline
+void mutable_spin_lock_nested(struct raw_spinlock *rlock, int subclass)
+{
+	mutable_spin_lock(rlock);
+}
+#endif
+
 void __mutable_spin_unlock(struct raw_spinlock *rlock);
 
 static inline void mutable_spin_unlock(struct raw_spinlock *rlock)
 {
-	if (in_pipeline()) {
+	if (in_pipeline())
 		hard_lock_release(rlock, _THIS_IP_);
-		do_raw_spin_unlock(rlock);
-	} else
+	else
 		__mutable_spin_unlock(rlock);
 }
 
@@ -255,10 +272,9 @@ void __mutable_spin_unlock_irq(struct raw_spinlock *rlock);
 
 static inline void mutable_spin_unlock_irq(struct raw_spinlock *rlock)
 {
-	if (in_pipeline()) {
+	if (in_pipeline())
 		hard_lock_release(rlock, _THIS_IP_);
-		do_raw_spin_unlock(rlock);
-	} else
+	else
 		__mutable_spin_unlock_irq(rlock);
 }
 
@@ -280,10 +296,9 @@ static inline void mutable_spin_unlock_irqrestore(struct raw_spinlock *rlock,
 						  unsigned long flags)
 {
 
-	if (in_pipeline()) {
+	if (in_pipeline())
 		hard_lock_release(rlock, _THIS_IP_);
-		do_raw_spin_unlock(rlock);
-	} else
+	else
 		__mutable_spin_unlock_irqrestore(rlock, flags);
 }
 
