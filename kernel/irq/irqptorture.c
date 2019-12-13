@@ -76,11 +76,11 @@ static int test_stop_machine(void)
 {
 	struct stop_machine_p_data d;
 	cpumask_var_t tmp_mask;
-	int ret = -EINVAL, cpu;
+	int ret = -ENOMEM, cpu;
 
 	if (!zalloc_cpumask_var(&d.disable_mask, GFP_KERNEL)) {
 		WARN_ON(1);
-		return -EINVAL;
+		return ret;
 	}
 
 	if (!alloc_cpumask_var(&tmp_mask, GFP_KERNEL)) {
@@ -88,6 +88,7 @@ static int test_stop_machine(void)
 		goto fail;
 	}
 
+	ret = -EINVAL;
 	d.origin_cpu = raw_smp_processor_id();
 	pr_alert("irq_pipeline" TORTURE_FLAG
 		 " CPU%d initiates stop_machine()\n",
