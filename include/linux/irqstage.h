@@ -31,7 +31,7 @@ extern struct irq_stage oob_stage;
 struct irq_event_map;
 
 struct irq_log {
-	unsigned long himap;
+	unsigned long index_0;
 	struct irq_event_map *map;
 };
 
@@ -194,7 +194,7 @@ static inline bool oob_stage_present(void)
  */
 static inline int stage_irqs_pending(struct irq_stage_data *pd)
 {
-	return pd->log.himap != 0;
+	return pd->log.index_0 != 0;
 }
 
 void sync_current_irq_stage(void);

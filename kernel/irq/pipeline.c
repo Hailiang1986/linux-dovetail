@@ -39,28 +39,26 @@ EXPORT_SYMBOL_GPL(irq_pipeline_oopsing);
 bool irq_pipeline_active;
 EXPORT_SYMBOL_GPL(irq_pipeline_active);
 
-#define IRQ_LOW_MAPSZ	DIV_ROUND_UP(IRQ_BITMAP_BITS, BITS_PER_LONG)
+#define IRQ_L1_MAPSZ	BITS_PER_LONG
+#define IRQ_L2_MAPSZ	(BITS_PER_LONG * BITS_PER_LONG)
+#define IRQ_FLAT_MAPSZ	DIV_ROUND_UP(IRQ_BITMAP_BITS, BITS_PER_LONG)
 
-#if IRQ_LOW_MAPSZ > BITS_PER_LONG
-/*
- * We need a 3-level mapping. This allows us to handle up to 32k IRQ
- * vectors on 32bit machines, 256k on 64bit ones.
- */
-#define __IRQ_STAGE_MAP_LEVELS	3
-#define IRQ_MID_MAPSZ	DIV_ROUND_UP(IRQ_LOW_MAPSZ, BITS_PER_LONG)
+#if IRQ_FLAT_MAPSZ > IRQ_L2_MAPSZ
+#define __IRQ_STAGE_MAP_LEVELS	4	/* up to 4/16M vectors */
+#elif IRQ_FLAT_MAPSZ > IRQ_L1_MAPSZ
+#define __IRQ_STAGE_MAP_LEVELS	3	/* up to 64/256M vectors */
 #else
-/*
- * 2-level mapping is enough. This allows us to handle up to 1024 IRQ
- * vectors on 32bit machines, 4096 on 64bit ones.
- */
-#define __IRQ_STAGE_MAP_LEVELS	2
+#define __IRQ_STAGE_MAP_LEVELS	2	/* up to 1024/4096 vectors */
 #endif
 
 struct irq_event_map {
-#if __IRQ_STAGE_MAP_LEVELS == 3
-	unsigned long mdmap[IRQ_MID_MAPSZ];
+#if __IRQ_STAGE_MAP_LEVELS >= 3
+	unsigned long index_1[IRQ_L1_MAPSZ];
+#if __IRQ_STAGE_MAP_LEVELS >= 4
+	unsigned long index_2[IRQ_L2_MAPSZ];
 #endif
-	unsigned long lomap[IRQ_LOW_MAPSZ];
+#endif
+	unsigned long flat[IRQ_FLAT_MAPSZ];
 };
 
 #ifdef CONFIG_SMP
@@ -588,7 +586,106 @@ trace_on_debug void restore_stage(unsigned long combo)
 }
 EXPORT_SYMBOL_GPL(restore_stage);
 
-#if __IRQ_STAGE_MAP_LEVELS == 3
+#if __IRQ_STAGE_MAP_LEVELS == 4
+
+/* Must be called hw IRQs off. */
+void irq_post_stage(struct irq_stage *stage, unsigned int irq)
+{
+	struct irq_stage_data *p = this_staged(stage);
+	int l0b, l1b, l2b;
+
+	if (WARN_ON_ONCE(irq_pipeline_debug() &&
+			 (!hard_irqs_disabled() || irq >= IRQ_BITMAP_BITS)))
+		return;
+
+	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG * BITS_PER_LONG);
+	l1b = irq / (BITS_PER_LONG * BITS_PER_LONG);
+	l2b = irq / BITS_PER_LONG;
+
+	__set_bit(irq, p->log.map->flat);
+	__set_bit(l2b, p->log.map->index_2);
+	__set_bit(l1b, p->log.map->index_1);
+	__set_bit(l0b, &p->log.index_0);
+}
+EXPORT_SYMBOL_GPL(irq_post_stage);
+
+static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
+{
+	int l0b, l1b, l2b;
+
+	__clear_bit(irq, p->log.map->flat);
+
+	l2b = irq / BITS_PER_LONG;
+	if (p->log.map->flat[l2b] == 0) {
+		__clear_bit(l2b, p->log.map->index_2);
+		l1b = l2b / BITS_PER_LONG;
+		if (p->log.map->index_2[l1b] == 0) {
+			__clear_bit(l1b, p->log.map->index_1);
+			l0b = l1b / BITS_PER_LONG;
+			if (p->log.map->index_1[l0b] == 0)
+				__clear_bit(l0b, &p->log.index_0);
+		}
+	}
+}
+
+static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
+{
+	struct irq_stage_data *p = this_staged(stage);
+	__clear_pending_irq(p, irq);
+}
+
+#define ltob_1(__n)  ((__n) * BITS_PER_LONG)
+#define ltob_2(__n)  (ltob_1(__n) * BITS_PER_LONG)
+#define ltob_3(__n)  (ltob_2(__n) * BITS_PER_LONG)
+
+static inline int pull_next_irq(struct irq_stage_data *p)
+{
+	unsigned long l0m, l1m, l2m, l3m;
+	int l0b, l1b, l2b, l3b;
+	unsigned int irq;
+
+	l0m = p->log.index_0;
+	if (l0m == 0)
+		return -1;
+	l0b = __ffs(l0m);
+	irq = ltob_3(l0b);
+
+	l1m = p->log.map->index_1[l0b];
+	if (unlikely(l1m == 0)) {
+		WARN_ON_ONCE(1);
+		return -1;
+	}
+	l1b = __ffs(l1m);
+	irq += ltob_2(l1b);
+
+	l2m = p->log.map->index_2[ltob_1(l0b) + l1b];
+	if (unlikely(l2m == 0)) {
+		WARN_ON_ONCE(1);
+		return -1;
+	}
+	l2b = __ffs(l2m);
+	irq += ltob_1(l2b);
+
+	l3m = p->log.map->flat[ltob_2(l0b) + ltob_1(l1b) + l2b];
+	if (unlikely(l3m == 0))
+		return -1;
+	l3b = __ffs(l3m);
+	irq += l3b;
+
+	__clear_bit(irq, p->log.map->flat);
+	if (p->log.map->flat[irq / BITS_PER_LONG] == 0) {
+		__clear_bit(l2b, &p->log.map->index_2[ltob_1(l0b) + l1b]);
+		if (p->log.map->index_2[ltob_1(l0b) + l1b] == 0) {
+			__clear_bit(l1b, &p->log.map->index_1[l0b]);
+			if (p->log.map->index_1[l0b] == 0)
+				__clear_bit(l0b, &p->log.index_0);
+		}
+	}
+
+	return irq;
+}
+
+#elif __IRQ_STAGE_MAP_LEVELS == 3
 
 /* Must be called hw IRQs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
@@ -603,9 +700,9 @@ void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG);
 	l1b = irq / BITS_PER_LONG;
 
-	__set_bit(irq, p->log.map->lomap);
-	__set_bit(l1b, p->log.map->mdmap);
-	__set_bit(l0b, &p->log.himap);
+	__set_bit(irq, p->log.map->flat);
+	__set_bit(l1b, p->log.map->index_1);
+	__set_bit(l0b, &p->log.index_0);
 }
 EXPORT_SYMBOL_GPL(irq_post_stage);
 
@@ -616,9 +713,9 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG);
 	l1b = irq / BITS_PER_LONG;
 
-	__clear_bit(irq, p->log.map->lomap);
-	__clear_bit(l1b, p->log.map->mdmap);
-	__clear_bit(l0b, &p->log.himap);
+	__clear_bit(irq, p->log.map->flat);
+	__clear_bit(l1b, p->log.map->index_1);
+	__clear_bit(l0b, &p->log.index_0);
 }
 
 static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
@@ -632,28 +729,30 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 	unsigned long l0m, l1m, l2m;
 	int l0b, l1b, l2b, irq;
 
-	l0m = p->log.himap;
+	l0m = p->log.index_0;
 	if (unlikely(l0m == 0))
 		return -1;
 
 	l0b = __ffs(l0m);
-	l1m = p->log.map->mdmap[l0b];
-	if (unlikely(l1m == 0))
+	l1m = p->log.map->index_1[l0b];
+	if (l1m == 0)
 		return -1;
 
 	l1b = __ffs(l1m) + l0b * BITS_PER_LONG;
-	l2m = p->log.map->lomap[l1b];
-	if (unlikely(l2m == 0))
+	l2m = p->log.map->flat[l1b];
+	if (unlikely(l2m == 0)) {
+		WARN_ON_ONCE(1);
 		return -1;
+	}
 
 	l2b = __ffs(l2m);
 	irq = l1b * BITS_PER_LONG + l2b;
 
-	__clear_bit(irq, p->log.map->lomap);
-	if (p->log.map->lomap[l1b] == 0) {
-		__clear_bit(l1b, p->log.map->mdmap);
-		if (p->log.map->mdmap[l0b] == 0)
-			__clear_bit(l0b, &p->log.himap);
+	__clear_bit(irq, p->log.map->flat);
+	if (p->log.map->flat[l1b] == 0) {
+		__clear_bit(l1b, p->log.map->index_1);
+		if (p->log.map->index_1[l0b] == 0)
+			__clear_bit(l0b, &p->log.index_0);
 	}
 
 	return irq;
@@ -665,8 +764,8 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 {
 	int l0b = irq / BITS_PER_LONG;
 
-	__clear_bit(irq, p->log.map->lomap);
-	__clear_bit(l0b, &p->log.himap);
+	__clear_bit(irq, p->log.map->flat);
+	__clear_bit(l0b, &p->log.index_0);
 }
 
 static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
@@ -685,8 +784,8 @@ void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 			 (!hard_irqs_disabled() || irq >= IRQ_BITMAP_BITS)))
 		return;
 
-	__set_bit(irq, p->log.map->lomap);
-	__set_bit(l0b, &p->log.himap);
+	__set_bit(irq, p->log.map->flat);
+	__set_bit(l0b, &p->log.index_0);
 }
 EXPORT_SYMBOL_GPL(irq_post_stage);
 
@@ -695,19 +794,21 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 	unsigned long l0m, l1m;
 	int l0b, l1b;
 
-	l0m = p->log.himap;
-	if (unlikely(l0m == 0))
+	l0m = p->log.index_0;
+	if (l0m == 0)
 		return -1;
 
 	l0b = __ffs(l0m);
-	l1m = p->log.map->lomap[l0b];
-	if (unlikely(l1m == 0))
+	l1m = p->log.map->flat[l0b];
+	if (unlikely(l1m == 0)) {
+		WARN_ON_ONCE(1);
 		return -1;
+	}
 
 	l1b = __ffs(l1m);
-	__clear_bit(l1b, &p->log.map->lomap[l0b]);
-	if (p->log.map->lomap[l0b] == 0)
-		__clear_bit(l0b, &p->log.himap);
+	__clear_bit(l1b, &p->log.map->flat[l0b]);
+	if (p->log.map->flat[l0b] == 0)
+		__clear_bit(l0b, &p->log.index_0);
 
 	return l0b * BITS_PER_LONG + l1b;
 }
