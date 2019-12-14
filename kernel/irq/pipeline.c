@@ -628,12 +628,6 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 	}
 }
 
-static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
-{
-	struct irq_stage_data *p = this_staged(stage);
-	__clear_pending_irq(p, irq);
-}
-
 #define ltob_1(__n)  ((__n) * BITS_PER_LONG)
 #define ltob_2(__n)  (ltob_1(__n) * BITS_PER_LONG)
 #define ltob_3(__n)  (ltob_2(__n) * BITS_PER_LONG)
@@ -718,12 +712,6 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 	__clear_bit(l0b, &p->log.index_0);
 }
 
-static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
-{
-	struct irq_stage_data *p = this_staged(stage);
-	__clear_pending_irq(p, irq);
-}
-
 static inline int pull_next_irq(struct irq_stage_data *p)
 {
 	unsigned long l0m, l1m, l2m;
@@ -768,12 +756,6 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 	__clear_bit(l0b, &p->log.index_0);
 }
 
-static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
-{
-	struct irq_stage_data *p = this_staged(stage);
-	__clear_pending_irq(p, irq);
-}
-
 /* Must be called hw IRQs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 {
@@ -814,6 +796,12 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 }
 
 #endif  /* __IRQ_STAGE_MAP_LEVELS == 2 */
+
+static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
+{
+	struct irq_stage_data *p = this_staged(stage);
+	__clear_pending_irq(p, irq);
+}
 
 /**
  *	irq_pipeline_clear - clear IRQ event from all per-CPU logs
