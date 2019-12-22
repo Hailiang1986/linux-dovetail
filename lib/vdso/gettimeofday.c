@@ -14,6 +14,8 @@
  * The generic vDSO implementation requires that gettimeofday.h
  * provides:
  * - __arch_get_vdso_data(): to get the vdso datapage.
+ * - __arch_get_vdso_priv(): if CONFIG_GENERIC_CLOCKSOURCE_VDSO is enabled,
+ *   to get the vdso private/per-process data page.
  * - __arch_get_hw_counter(): to get the hw counter based on the
  *   clock_mode.
  * - gettimeofday_fallback(): fallback for gettimeofday.
@@ -25,6 +27,215 @@
 #else
 #include <asm/vdso/gettimeofday.h>
 #endif /* ENABLE_COMPAT_VDSO */
+
+#ifdef CONFIG_GENERIC_CLOCKSOURCE_VDSO
+
+#include <linux/fcntl.h>
+#include <linux/io.h>
+#include <linux/ioctl.h>
+#include <uapi/linux/clocksource.h>
+
+static notrace u64 readl_mmio_up(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	return readl_relaxed(info->reg_lower);
+}
+
+static notrace u64 readl_mmio_down(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	return ~(u64)readl_relaxed(info->reg_lower) & info->mask_lower;
+}
+
+static notrace u64 readw_mmio_up(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	return readw_relaxed(info->reg_lower);
+}
+
+static notrace u64 readw_mmio_down(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	return ~(u64)readl_relaxed(info->reg_lower) & info->mask_lower;
+}
+
+static notrace u64 readl_dmmio_up(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	void __iomem *reg_lower, *reg_upper;
+	u32 upper, old_upper, lower;
+
+	reg_lower = info->reg_lower;
+	reg_upper = info->reg_upper;
+
+	upper = readl_relaxed(reg_upper);
+	do {
+		old_upper = upper;
+		lower = readl_relaxed(reg_lower);
+		upper = readl_relaxed(reg_upper);
+	} while (upper != old_upper);
+
+	return (((u64)upper) << info->bits_lower) | lower;
+}
+
+static notrace u64 readw_dmmio_up(const struct clksrc_info *vinfo)
+{
+	const struct clksrc_user_mmio_info *info = &vinfo->mmio;
+	void __iomem *reg_lower, *reg_upper;
+	u16 upper, old_upper, lower;
+
+	reg_lower = info->reg_lower;
+	reg_upper = info->reg_upper;
+
+	upper = readw_relaxed(reg_upper);
+	do {
+		old_upper = upper;
+		lower = readw_relaxed(reg_lower);
+		upper = readw_relaxed(reg_upper);
+	} while (upper != old_upper);
+
+	return (((u64)upper) << info->bits_lower) | lower;
+}
+
+static notrace __cold vdso_read_cycles_t *get_mmio_read_cycles(unsigned int type)
+{
+	switch (type) {
+	case CLKSRC_MMIO_L_UP:
+		return &readl_mmio_up;
+	case CLKSRC_MMIO_L_DOWN:
+		return &readl_mmio_down;
+	case CLKSRC_MMIO_W_UP:
+		return &readw_mmio_up;
+	case CLKSRC_MMIO_W_DOWN:
+		return &readw_mmio_down;
+	case CLKSRC_DMMIO_L_UP:
+		return &readl_dmmio_up;
+	case CLKSRC_DMMIO_W_UP:
+		return &readw_dmmio_up;
+	default:
+		return NULL;
+	}
+}
+
+static __always_inline u16 to_cs_type(u32 cs_type_seq)
+{
+	return cs_type_seq >> 16;
+}
+
+static __always_inline u16 to_seq(u32 cs_type_seq)
+{
+	return cs_type_seq;
+}
+
+static __always_inline u32 to_cs_type_seq(u16 type, u16 seq)
+{
+	return (u32)type << 16U | seq;
+}
+
+static notrace noinline __cold
+void map_clocksource(const struct vdso_data *vd, struct vdso_priv *vp,
+		     u32 seq, u32 new_cs_type_seq)
+{
+	vdso_read_cycles_t *read_cycles = NULL;
+	u32 new_cs_seq, new_cs_type;
+	struct clksrc_info *info;
+	int fd, ret;
+
+	new_cs_seq = to_seq(new_cs_type_seq);
+	new_cs_type = to_cs_type(new_cs_type_seq);
+	info = &vp->clksrc_info[new_cs_type];
+
+	if (new_cs_type < CLOCKSOURCE_VDSO_MMIO)
+		goto done;
+
+	fd = clock_open_device(vd->cs_mmdev, O_RDONLY);
+	if (fd < 0)
+		goto fallback_to_syscall;
+
+	if (vdso_read_retry(vd, seq)) {
+		vdso_read_begin(vd);
+		if (to_seq(vd->cs_type_seq) != new_cs_seq) {
+			/*
+			 * cs_mmdev no longer corresponds to
+			 * vd->cs_type_seq.
+			 */
+			clock_close_device(fd);
+			return;
+		}
+	}
+
+	ret = clock_ioctl_device(fd, CLKSRC_USER_MMIO_MAP, (long)&info->mmio);
+	clock_close_device(fd);
+	if (ret < 0)
+		goto fallback_to_syscall;
+
+	read_cycles = get_mmio_read_cycles(info->mmio.type);
+	if (read_cycles == NULL) /* Mmhf, misconfigured. */
+		goto fallback_to_syscall;
+done:
+	info->read_cycles = read_cycles;
+	smp_wmb();
+	new_cs_type_seq = to_cs_type_seq(new_cs_type, new_cs_seq);
+	WRITE_ONCE(vp->current_cs_type_seq, new_cs_type_seq);
+
+	return;
+
+fallback_to_syscall:
+	new_cs_type = CLOCKSOURCE_VDSO_NONE;
+	info = &vp->clksrc_info[new_cs_type];
+	goto done;
+}
+
+static inline notrace
+u64 get_hw_counter(const struct vdso_data *vd, u32 *r_seq)
+{
+	const struct clksrc_info *info;
+	struct vdso_priv *vp;
+	u32 seq, cs_type_seq;
+	unsigned int cs;
+	u64 cycles;
+
+	vp = __arch_get_vdso_priv();
+
+	for (;;) {
+		seq = vdso_read_begin(vd);
+		cs_type_seq = READ_ONCE(vp->current_cs_type_seq);
+		if (likely(to_seq(cs_type_seq) == to_seq(vd->cs_type_seq)))
+			break;
+
+		map_clocksource(vd, vp, seq, vd->cs_type_seq);
+	}
+
+	switch (to_cs_type(cs_type_seq)) {
+	case CLOCKSOURCE_VDSO_NONE:
+		cycles = (u64)-1; /* Use fallback. */
+		break;
+	case CLOCKSOURCE_VDSO_ARCHITECTED:
+		cycles = __arch_get_hw_counter(vd->clock_mode);
+		break;
+	default:
+		cs = to_cs_type(READ_ONCE(cs_type_seq));
+		info = &vp->clksrc_info[cs];
+		cycles = info->read_cycles(info);
+		break;
+	}
+
+	*r_seq = seq;
+
+	return cycles;
+}
+
+#else
+
+static inline notrace
+u64 get_hw_counter(const struct vdso_data *vd, u32 *r_seq)
+{
+	*r_seq = vdso_read_begin(vd);
+
+	return __arch_get_hw_counter(vd->clock_mode);
+}
+
+#endif /* CONFIG_GENERIC_CLOCKSOURCE_VDSO */
 
 #ifndef vdso_calc_delta
 /*
@@ -56,8 +267,7 @@ static int do_hres_timens(const struct vdso_data *vdns, clockid_t clk,
 	vdso_ts = &vd->basetime[clk];
 
 	do {
-		seq = vdso_read_begin(vd);
-		cycles = __arch_get_hw_counter(vd->clock_mode);
+		cycles = get_hw_counter(vd, &seq);
 		ns = vdso_ts->nsec;
 		last = vd->cycle_last;
 		if (unlikely((s64)cycles < 0))
@@ -121,7 +331,7 @@ static __always_inline int do_hres(const struct vdso_data *vd, clockid_t clk,
 		}
 		smp_rmb();
 
-		cycles = __arch_get_hw_counter(vd->clock_mode);
+		cycles = get_hw_counter(vd, &seq);
 		ns = vdso_ts->nsec;
 		last = vd->cycle_last;
 		if (unlikely((s64)cycles < 0))
