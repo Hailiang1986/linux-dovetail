@@ -30,6 +30,14 @@ struct module;
 #include <asm/clocksource.h>
 #endif
 
+#ifdef CONFIG_GENERIC_CLOCKSOURCE_VDSO
+enum clocksource_vdso_type {
+	CLOCKSOURCE_VDSO_NONE = 0,
+	CLOCKSOURCE_VDSO_ARCHITECTED,
+	CLOCKSOURCE_VDSO_MMIO,	/* <= Must be last. */
+};
+#endif
+
 /**
  * struct clocksource - hardware abstraction for a free running counter
  *	Provides mostly state-free accessors to the underlying hardware.
@@ -108,6 +116,9 @@ struct clocksource {
 	struct list_head wd_list;
 	u64 cs_last;
 	u64 wd_last;
+#endif
+#ifdef CONFIG_GENERIC_CLOCKSOURCE_VDSO
+  	enum clocksource_vdso_type vdso_type;
 #endif
 	struct module *owner;
 };
