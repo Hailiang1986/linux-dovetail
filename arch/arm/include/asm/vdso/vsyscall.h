@@ -36,7 +36,7 @@ struct vdso_data *__arm_get_k_vdso_data(void)
 static __always_inline
 bool __arm_update_vdso_data(void)
 {
-	return cntvct_ok;
+	return IS_ENABLED(CONFIG_GENERIC_CLOCKSOURCE_VDSO) || cntvct_ok;
 }
 #define __arch_update_vdso_data __arm_update_vdso_data
 
