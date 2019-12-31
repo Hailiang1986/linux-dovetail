@@ -176,10 +176,6 @@ ifeq ($(ACCUMULATE_OUTGOING_ARGS), 1)
 	KBUILD_CFLAGS += $(call cc-option,-maccumulate-outgoing-args,)
 endif
 
-ifeq ($(CONFIG_EVL),y)
-KBUILD_CFLAGS += -Iarch/$(SRCARCH)/evl/include -Iinclude/evl
-endif
-
 # Workaround for a gcc prelease that unfortunately was shipped in a suse release
 KBUILD_CFLAGS += -Wno-sign-compare
 #
