@@ -7,7 +7,7 @@
 #ifndef _EVL_DEVICES_GPIO_H
 #define _EVL_DEVICES_GPIO_H
 
-#include <evl/devices.h>
+#include <evl/device.h>
 #include <uapi/evl/devices/gpio.h>
 
 #ifdef CONFIG_EVL
