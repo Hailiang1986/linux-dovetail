@@ -123,6 +123,17 @@ static int proxy_tick_resume(struct clock_event_device *dev)
 	return ret;
 }
 
+static void proxy_broadcast(const struct cpumask *mask)
+{
+	struct clock_proxy_device *dev = raw_cpu_ptr(&proxy_tick_device);
+        struct clock_event_device *real_dev = dev->real_device;
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
+	real_dev->broadcast(mask);
+	hard_local_irq_restore(flags);
+}
+
 static int proxy_set_next_event(unsigned long delay,
 				struct clock_event_device *dev)
 {
@@ -247,6 +258,7 @@ int tick_setup_proxy(struct clock_proxy_device *dev)
 	interpose_proxy_handler(proxy_dev, real_dev, suspend);
 	interpose_proxy_handler(proxy_dev, real_dev, resume);
 	interpose_proxy_handler(proxy_dev, real_dev, tick_resume);
+	interpose_proxy_handler(proxy_dev, real_dev, broadcast);
 	interpose_proxy_handler(proxy_dev, real_dev, set_next_event);
 	interpose_proxy_handler(proxy_dev, real_dev, set_next_ktime);
 
