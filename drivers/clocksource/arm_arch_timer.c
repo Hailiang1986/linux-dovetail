@@ -985,10 +985,8 @@ static void __init arch_counter_register(unsigned type)
 
 		arch_timer_read_counter = rd;
 		clocksource_counter.archdata.vdso_direct = vdso_default;
-#ifdef CONFIG_GENERIC_CLOCKSOURCE_VDSO
 		if (vdso_default)
 			clocksource_counter.vdso_type = CLOCKSOURCE_VDSO_ARCHITECTED;
-#endif
 	} else {
 		arch_timer_read_counter = arch_counter_get_cntvct_mem;
 	}
