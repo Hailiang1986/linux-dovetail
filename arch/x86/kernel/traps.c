@@ -109,9 +109,6 @@ void pipelined_fault_exit(unsigned long combo)
 	unsigned long flags;
 	int nosync;
 
-	WARN_ON_ONCE(irq_pipeline_debug() &&
-		oob_stage_present() && hard_irqs_disabled());
-
 	flags = irqs_split_flags(combo, &nosync);
 	if (!nosync) {
 		hard_local_irq_disable();
