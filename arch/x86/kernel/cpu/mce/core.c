@@ -1227,6 +1227,7 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 	DECLARE_BITMAP(valid_banks, MAX_NR_BANKS);
 	DECLARE_BITMAP(toclear, MAX_NR_BANKS);
 	struct mca_config *cfg = &mca_cfg;
+	bool oob_entry = running_oob();
 	int cpu = smp_processor_id();
 	char *msg = "Unknown";
 	struct mce m, *final;
@@ -1364,7 +1365,7 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 	}
 
 out_ist:
-	ist_exit(regs);
+	ist_exit(regs, oob_entry);
 }
 EXPORT_SYMBOL_GPL(do_machine_check);
 
