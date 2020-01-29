@@ -19,7 +19,6 @@ struct file;
 struct files_struct;
 
 enum inband_event_type {
-	INBAND_TASK_SCHEDULE,
 	INBAND_TASK_SIGNAL,
 	INBAND_TASK_MIGRATION,
 	INBAND_TASK_EXIT,
@@ -117,10 +116,8 @@ void prepare_inband_switch(struct task_struct *next)
 {
 	struct task_struct *prev = current;
 
-	if (test_ti_local_flags(task_thread_info(next), _TLF_DOVETAIL)) {
+	if (test_ti_local_flags(task_thread_info(next), _TLF_DOVETAIL))
 		__this_cpu_write(irq_pipeline.rqlock_owner, prev);
-		inband_event_notify(INBAND_TASK_SCHEDULE, next);
-	}
 
 	hard_local_irq_disable();
 }
