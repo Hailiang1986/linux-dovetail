@@ -307,11 +307,6 @@ pointer argument which relates to the event type.
 
 The following events are defined (include/linux/dovetail.h):
 
-- INBAND_TASK_SCHEDULE(struct task_struct *next)
-
-  sent in preparation of a context switch, right before the memory
-  context is switched to *next*.
-
 - INBAND_TASK_SIGNAL(struct task_struct *target)
 
   sent when *target* is about to receive a signal. The real-time core
