@@ -308,7 +308,7 @@ __visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	enable_local_irqs();
 	ti = current_thread_info();
 
-	ret = pipeline_syscall(ti, nr, regs);
+	ret = pipeline_syscall(nr, regs);
 	if (ret > 0) {
 		disable_local_irqs();
 		return;
@@ -338,8 +338,8 @@ done:
 #if defined(CONFIG_X86_32) || defined(CONFIG_IA32_EMULATION)
 
 #if defined(CONFIG_DOVETAIL) && defined(CONFIG_X86_64)
-static inline int pipeline_syscall32(struct thread_info *ti,
-				unsigned long nr, struct pt_regs *regs)
+static inline
+int pipeline_syscall32(unsigned long nr, struct pt_regs *regs)
 {
 	struct pt_regs regs64 = *regs;
 	int ret;
@@ -349,14 +349,14 @@ static inline int pipeline_syscall32(struct thread_info *ti,
 	regs64.r10 = (unsigned int)regs->si;
 	regs64.r8 = (unsigned int)regs->di;
 	regs64.r9 = (unsigned int)regs->bp;
-	ret = pipeline_syscall(ti, nr, &regs64);
+	ret = pipeline_syscall(nr, &regs64);
 	regs->ax = (unsigned int)regs64.ax;
 
 	return ret;
 }
 #else
-static inline int pipeline_syscall32(struct thread_info *ti,
-				   unsigned long nr, struct pt_regs *regs)
+static inline
+int pipeline_syscall32(unsigned long nr, struct pt_regs *regs)
 {
 	return 0;
 }
@@ -378,7 +378,7 @@ static __always_inline void do_syscall_32_irqs_on(struct pt_regs *regs)
 	ti->status |= TS_COMPAT;
 #endif
 
-	ret = pipeline_syscall32(ti, nr, regs);
+	ret = pipeline_syscall32(nr, regs);
 	if (ret > 0) {
 		disable_local_irqs();
 		return;
