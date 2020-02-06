@@ -95,8 +95,9 @@ void dovetail_call_mayday(struct thread_info *ti, struct pt_regs *regs)
 	hard_local_irq_restore(flags);
 }
 
-int __pipeline_syscall(struct thread_info *ti, struct pt_regs *regs)
+int __pipeline_syscall(struct pt_regs *regs)
 {
+	struct thread_info *ti = current_thread_info();
 	struct irq_stage *caller_stage, *target_stage;
 	struct irq_stage_data *p, *this_context;
 	unsigned long flags;
@@ -169,9 +170,9 @@ void sync_inband_irqs(void)
 	hard_local_irq_restore(flags);
 }
 
-int pipeline_syscall(struct thread_info *ti,
-		     unsigned long nr, struct pt_regs *regs)
+int pipeline_syscall(unsigned long nr, struct pt_regs *regs)
 {
+	struct thread_info *ti = current_thread_info();
 	unsigned long local_flags = READ_ONCE(ti_local_flags(ti));
 	int ret;
 
@@ -214,7 +215,7 @@ int pipeline_syscall(struct thread_info *ti,
 	}
 
 	if ((local_flags & _TLF_DOVETAIL) || nr >= NR_syscalls) {
-		ret = __pipeline_syscall(ti, regs);
+		ret = __pipeline_syscall(regs);
 		local_flags = READ_ONCE(ti_local_flags(ti));
 		if (local_flags & _TLF_OOB)
 			return 1; /* don't pass down, no tail work. */
