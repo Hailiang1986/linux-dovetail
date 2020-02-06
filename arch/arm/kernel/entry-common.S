@@ -282,8 +282,7 @@ slow_path:
 	cmp	scno, r0
 	bne	root_syscall
 pipeline_syscall:
-	mov	r1, sp				@ regs
-	mov	r0, tsk
+	mov	r0, sp				@ regs
 	bl	__pipeline_syscall
 	ldr	r10, [tsk, #TI_LOCAL_FLAGS]
 	tst	r10, #_TLF_OOB
