@@ -110,7 +110,7 @@ static void el0_svc_common(struct pt_regs *regs, int scno, int sc_nr,
 	if (stalled)
 		local_irq_enable();
 
-	ret = pipeline_syscall(ti, scno, regs);
+	ret = pipeline_syscall(scno, regs);
 	if (ret) {
 		if (stalled)
 			local_irq_disable();
