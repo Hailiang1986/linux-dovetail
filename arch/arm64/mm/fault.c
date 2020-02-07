@@ -1032,20 +1032,20 @@ asmlinkage void __exception do_debug_exception(unsigned long addr_if_watchpoint,
 	if (cortex_a76_erratum_1463225_debug_handler(regs))
 		return;
 
-	debug_exception_enter(regs);
-
 	if (user_mode(regs) && !is_ttbr0_addr(pc))
 		arm64_apply_bp_hardening();
 
 	irqflags = fault_entry(ARM64_TRAP_DEBUG, regs);
+
+	debug_exception_enter(regs);
 
 	if (inf->fn(addr_if_watchpoint, esr, regs)) {
 		arm64_notify_die(inf->name, regs,
 				 inf->sig, inf->code, (void __user *)pc, esr);
 	}
 
-	fault_exit(irqflags);
-
 	debug_exception_exit(regs);
+
+	fault_exit(irqflags);
 }
 NOKPROBE_SYMBOL(do_debug_exception);
