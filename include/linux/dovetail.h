@@ -23,6 +23,7 @@ enum inband_event_type {
 	INBAND_TASK_SIGNAL,
 	INBAND_TASK_MIGRATION,
 	INBAND_TASK_EXIT,
+	INBAND_TASK_RETUSER,
 	INBAND_PROCESS_CLEANUP,
 };
 
@@ -117,6 +118,8 @@ static inline void inband_exit_guest(void)
 	barrier();
 }
 
+void inband_retuser_notify(void);
+
 int inband_switch_tail(void);
 
 void oob_trampoline(void);
@@ -200,6 +203,20 @@ static inline void dovetail_send_mayday(struct task_struct *castaway)
 		set_ti_thread_flag(ti, TIF_MAYDAY);
 }
 
+static inline void dovetail_request_ucall(struct task_struct *task)
+{
+	struct thread_info *ti = task_thread_info(task);
+
+	if (test_ti_local_flags(ti, _TLF_DOVETAIL))
+		set_ti_thread_flag(ti, TIF_RETUSER);
+}
+
+static inline void dovetail_clear_ucall(void)
+{
+	if (test_thread_flag(TIF_RETUSER))
+		clear_thread_flag(TIF_RETUSER);
+}
+
 void install_inband_fd(unsigned int fd, struct file *file,
 		       struct files_struct *files);
 
@@ -234,6 +251,8 @@ static inline void inband_exit_notify(void) { }
 
 static inline void inband_cleanup_notify(struct mm_struct *mm) { }
 
+static inline void inband_retuser_notify(void) { }
+
 static inline void oob_trampoline(void) { }
 
 static inline void prepare_inband_switch(struct task_struct *next) { }
@@ -247,7 +266,11 @@ static inline int inband_switch_tail(void)
 	return 0;
 }
 
-#define protect_inband_mm(__flags)	\
+static inline void dovetail_request_ucall(struct task_struct *task) { }
+
+static inline void dovetail_clear_ucall(void) { }
+
+#define protect_inband_mm(__flags)		\
 	do { (void)(__flags); } while (0)
 
 #define unprotect_inband_mm(__flags)	\
