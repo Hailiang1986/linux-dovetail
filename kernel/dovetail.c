@@ -95,6 +95,13 @@ void dovetail_call_mayday(struct thread_info *ti, struct pt_regs *regs)
 	hard_local_irq_restore(flags);
 }
 
+void inband_retuser_notify(void)
+{
+	clear_thread_flag(TIF_RETUSER);
+	inband_event_notify(INBAND_TASK_RETUSER, current);
+	/* CAUTION: we might have switched out-of-band here. */
+}
+
 int __pipeline_syscall(struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
@@ -270,6 +277,7 @@ static void finalize_oob_transition(void) /* hard IRQs off */
 {
 	struct irq_pipeline_data *pd;
 	struct irq_stage_data *p;
+	struct thread_info *ti;
 	struct task_struct *t;
 
 	pd = raw_cpu_ptr(&irq_pipeline);
@@ -287,6 +295,7 @@ static void finalize_oob_transition(void) /* hard IRQs off */
 	 * converse migration.
 	 */
 	pd->task_inflight = NULL;
+	ti = task_thread_info(t);
 
 	/*
 	 * IRQs are hard disabled, but the stage transition handler
