@@ -196,6 +196,19 @@ static void exit_to_usermode_loop(struct pt_regs *regs, u32 cached_flags)
 	}
 }
 
+static inline bool do_retuser(u32 cached_flags)
+{
+	if (dovetailing() && (cached_flags & _TIF_RETUSER)) {
+		enable_local_irqs();
+		inband_retuser_notify();
+		disable_local_irqs();
+		/* RETUSER might have switched oob */
+		return running_inband();
+	}
+
+	return false;
+}
+
 /* Called with IRQs disabled. */
 __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 {
@@ -209,6 +222,7 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 	lockdep_assert_irqs_disabled();
 	lockdep_sys_exit();
 
+again:
 	cached_flags = READ_ONCE(ti->flags);
 
 	if (unlikely(cached_flags & EXIT_TO_USERMODE_LOOP_FLAGS))
@@ -235,6 +249,9 @@ __visible inline void prepare_exit_to_usermode(struct pt_regs *regs)
 	 */
 	ti->status &= ~(TS_COMPAT|TS_I386_REGS_POKED);
 #endif
+
+	if (do_retuser(cached_flags))
+		goto again;
 
 	user_enter_irqoff();
 
