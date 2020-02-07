@@ -890,6 +890,17 @@ static void do_signal(struct pt_regs *regs)
 	restore_saved_sigmask();
 }
 
+static inline void do_retuser(void)
+{
+	unsigned long thread_flags;
+
+	if (dovetailing()) {
+		thread_flags = current_thread_info()->flags;
+		if (thread_flags & _TIF_RETUSER)
+			inband_retuser_notify();
+	}
+}
+
 asmlinkage void do_notify_resume(struct pt_regs *regs,
 				 unsigned long thread_flags)
 {
@@ -936,10 +947,12 @@ asmlinkage void do_notify_resume(struct pt_regs *regs,
 
 			if (thread_flags & _TIF_FOREIGN_FPSTATE)
 				fpsimd_restore_current_state();
+
+			do_retuser();
 		}
 
 		/*
-		 * CAUTION: we may have restored the fpsimd state for
+		 * Dovetail: we may have restored the fpsimd state for
 		 * current with no other opportunity to check for
 		 * _TIF_FOREIGN_FPSTATE until we are back running on
 		 * el0, so we must not take any interrupt until then,
@@ -947,6 +960,11 @@ asmlinkage void do_notify_resume(struct pt_regs *regs,
 		 * thread's fpsimd state.
 		 */
 		local_daif_mask();
+
+		/* RETUSER might have switched oob */
+		if (!running_inband())
+			break;
+
 		thread_flags = READ_ONCE(current_thread_info()->flags);
 	} while (inband_irq_pending() || (thread_flags & _TIF_WORK_MASK));
 }
