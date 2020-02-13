@@ -2149,6 +2149,8 @@ static void ptrace_stop(int exit_code, int why, int clear_code, kernel_siginfo_t
 			return;
 	}
 
+	inband_ptstop_notify();
+
 	set_special_state(TASK_TRACED);
 
 	/*
@@ -2241,6 +2243,8 @@ static void ptrace_stop(int exit_code, int why, int clear_code, kernel_siginfo_t
 			current->exit_code = 0;
 		read_unlock(&tasklist_lock);
 	}
+
+	inband_ptcont_notify();
 
 	/*
 	 * We are back.  Now reacquire the siglock before touching

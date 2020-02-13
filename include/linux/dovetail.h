@@ -24,6 +24,9 @@ enum inband_event_type {
 	INBAND_TASK_MIGRATION,
 	INBAND_TASK_EXIT,
 	INBAND_TASK_RETUSER,
+	INBAND_TASK_PTSTEP,
+	INBAND_TASK_PTSTOP,
+	INBAND_TASK_PTCONT,
 	INBAND_PROCESS_CLEANUP,
 };
 
@@ -89,6 +92,24 @@ static inline void inband_cleanup_notify(struct mm_struct *mm)
 	 * in other kernel events.
 	 */
 	inband_event_notify(INBAND_PROCESS_CLEANUP, mm);
+}
+
+static inline void inband_ptstop_notify(void)
+{
+	if (test_thread_local_flags(_TLF_DOVETAIL))
+		inband_event_notify(INBAND_TASK_PTSTOP, current);
+}
+
+static inline void inband_ptcont_notify(void)
+{
+	if (test_thread_local_flags(_TLF_DOVETAIL))
+		inband_event_notify(INBAND_TASK_PTCONT, current);
+}
+
+static inline void inband_ptstep_notify(struct task_struct *tracee)
+{
+	if (test_ti_local_flags(task_thread_info(tracee), _TLF_DOVETAIL))
+		inband_event_notify(INBAND_TASK_PTSTEP, tracee);
 }
 
 static inline
@@ -252,6 +273,12 @@ static inline void inband_exit_notify(void) { }
 static inline void inband_cleanup_notify(struct mm_struct *mm) { }
 
 static inline void inband_retuser_notify(void) { }
+
+static inline void inband_ptstop_notify(void) { }
+
+static inline void inband_ptcont_notify(void) { }
+
+static inline void inband_ptstep_notify(struct task_struct *tracee) { }
 
 static inline void oob_trampoline(void) { }
 
