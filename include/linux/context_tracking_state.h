@@ -28,7 +28,7 @@ DECLARE_PER_CPU(struct context_tracking, context_tracking);
 
 static inline bool context_tracking_is_enabled(void)
 {
-	return static_branch_unlikely(&context_tracking_enabled);
+	return static_branch_unlikely(&context_tracking_enabled) && running_inband();
 }
 
 static inline bool context_tracking_cpu_is_enabled(void)
