@@ -12,6 +12,7 @@
 #include <linux/irq_work.h>
 #include <linux/jhash.h>
 #include <linux/debug_locks.h>
+#include <linux/dovetail.h>
 #include <dovetail/irq.h>
 #include <trace/events/irq.h>
 #include "internals.h"
