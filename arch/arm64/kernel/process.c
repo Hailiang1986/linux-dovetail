@@ -677,7 +677,8 @@ core_initcall(tagged_addr_init);
 
 asmlinkage void __sched arm64_preempt_schedule_irq(void)
 {
-	lockdep_assert_irqs_disabled();
+	if (!irqs_pipelined())
+		lockdep_assert_irqs_disabled();
 
 	/*
 	 * Preempting a task from an IRQ means we leave copies of PSTATE
