@@ -59,12 +59,12 @@ void irq_pipeline_nmi_exit(void);
 #else /* !CONFIG_IRQ_PIPELINE */
 
 #define hard_local_save_flags()			({ unsigned long __flags; \
-						raw_local_save_flags(__flags); __flags; })
-#define hard_local_irq_enable()			raw_local_irq_enable()
-#define hard_local_irq_disable()		raw_local_irq_disable()
+						local_save_flags(__flags); __flags; })
+#define hard_local_irq_enable()			local_irq_enable()
+#define hard_local_irq_disable()		local_irq_disable()
 #define hard_local_irq_save()			({ unsigned long __flags; \
-						raw_local_irq_save(__flags); __flags; })
-#define hard_local_irq_restore(__flags)		raw_local_irq_restore(__flags)
+						local_irq_save(__flags); __flags; })
+#define hard_local_irq_restore(__flags)		local_irq_restore(__flags)
 
 #define hard_cond_local_irq_enable()		do { } while(0)
 #define hard_cond_local_irq_disable()		do { } while(0)
@@ -72,7 +72,7 @@ void irq_pipeline_nmi_exit(void);
 #define hard_cond_local_irq_restore(__flags)	do { (void)(__flags); } while(0)
 
 #define hard_irqs_disabled()			irqs_disabled()
-#define hard_irqs_disabled_flags(__flags)	raw_irqs_disabled_flags(__flags)
+#define hard_irqs_disabled_flags(__flags)	irqs_disabled_flags(__flags)
 
 static inline void irq_pipeline_nmi_enter(void) { }
 static inline void irq_pipeline_nmi_exit(void) { }
