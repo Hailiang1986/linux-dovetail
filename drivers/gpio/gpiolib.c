@@ -646,6 +646,9 @@ static const struct file_operations linehandle_fileops = {
 #endif
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = linehandle_ioctl_compat,
+#ifdef CONFIG_EVL
+	.compat_oob_ioctl = compat_ptr_oob_ioctl,
+#endif
 #endif
 };
 
