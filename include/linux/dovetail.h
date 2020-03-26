@@ -11,6 +11,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/thread_info.h>
+#include <uapi/asm-generic/dovetail.h>
 #include <asm/dovetail.h>
 
 struct pt_regs;
