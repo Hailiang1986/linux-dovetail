@@ -138,7 +138,7 @@ next:
 	 * per-stage, per-CPU context pointer.
 	 *
 	 * - if no stage migration happened, switch back to the
-	 * initial caller's stage, on a possibly different CPU though.
+	 * initial call stage, on a possibly different CPU though.
 	 */
 	if (current_irq_stage != target_stage)
 		this_context = current_irq_staged;
@@ -177,38 +177,37 @@ void sync_inband_irqs(void)
 	hard_local_irq_restore(flags);
 }
 
-int pipeline_syscall(unsigned long nr, struct pt_regs *regs)
+int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
 {
 	struct thread_info *ti = current_thread_info();
 	unsigned long local_flags = READ_ONCE(ti_local_flags(ti));
 	int ret;
 
 	/*
-	 * If the syscall number is out of bounds and we are not
-	 * running in-band, this has to be a non-native system call
-	 * handled by some co-kernel from the oob stage. Hand it over
-	 * via the fast syscall handler.
+	 * If __OOB_SYSCALL_BIT is set into the syscall number and we
+	 * are running out-of-band, pass the request directly to the
+	 * companion core by calling the oob syscall handler.
 	 *
-	 * Otherwise, if the system call is out of bounds or alternate
-	 * scheduling is enabled for the current thread, propagate the
-	 * syscall through the pipeline stages. This allows:
+	 * Otherwise, if __OOB_SYSCALL_BIT is set or alternate
+	 * scheduling is enabled for the caller, propagate the syscall
+	 * through the pipeline stages, so that:
 	 *
-	 * - the co-kernel to receive any initial - foreign - syscall
-	 * a thread should send for enabling dovetailing from the
+	 * - the core can manipulate the current execution stage for
+	 * handling the request, which includes switching the current
+	 * thread back to the in-band context if the syscall is a
+	 * native one, or promoting it to the oob stage if handling an
+	 * oob syscall requires this.
+	 *
+	 * - the core can receive the initial oob syscall a thread
+	 * might have to emit for enabling dovetailing from the
 	 * in-band stage.
 	 *
-	 * - the co-kernel to manipulate the current execution stage
-	 * for handling the request, which includes switching the
-	 * current thread back to the in-band context if the syscall
-	 * is a native one, or promoting it to the oob stage if
-	 * handling a foreign syscall requires this.
-	 *
 	 * Native syscalls from common (non-dovetailed) threads are
-	 * ignored by this routine, flowing down to the in-band system
-	 * call handler.
+	 * not subject to pipelining, but flow down to the in-band
+	 * system call handler directly.
 	 */
 
-	if (nr >= NR_syscalls && (local_flags & _TLF_OOB)) {
+	if ((nr & __OOB_SYSCALL_BIT) && (local_flags & _TLF_OOB)) {
 		handle_oob_syscall(regs);
 		local_flags = READ_ONCE(ti_local_flags(ti));
 		if (local_flags & _TLF_OOB) {
@@ -221,7 +220,7 @@ int pipeline_syscall(unsigned long nr, struct pt_regs *regs)
 		}
 	}
 
-	if ((local_flags & _TLF_DOVETAIL) || nr >= NR_syscalls) {
+	if ((local_flags & _TLF_DOVETAIL) || (nr & __OOB_SYSCALL_BIT)) {
 		ret = __pipeline_syscall(regs);
 		local_flags = READ_ONCE(ti_local_flags(ti));
 		if (local_flags & _TLF_OOB)
