@@ -42,8 +42,7 @@ struct dovetail_altsched_context {
 
 void inband_task_init(struct task_struct *p);
 
-int pipeline_syscall(unsigned long syscall,
-		struct pt_regs *regs);
+int pipeline_syscall(unsigned int nr, struct pt_regs *regs);
 
 void __oob_trap_notify(unsigned int trapnr,
 		       struct pt_regs *regs);
@@ -254,8 +253,7 @@ void inband_task_init(struct task_struct *p) { }
 #define oob_trap_notify(__trapnr, __regs)	 do { } while (0)
 
 static inline
-int pipeline_syscall(unsigned long syscall,
-		struct pt_regs *regs)
+int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
 {
 	return 0;
 }
