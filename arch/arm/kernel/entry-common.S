@@ -13,7 +13,7 @@
 #include <asm/memory.h>
 #ifdef CONFIG_AEABI
 #include <asm/unistd-oabi.h>
-#include <uapi/asm/dovetail.h>
+#include <uapi/asm-generic/dovetail.h>
 #endif
 
 	.equ	NR_syscalls, __NR_syscalls
@@ -260,9 +260,9 @@ ENTRY(vector_swi)
 local_restart:
 #ifdef CONFIG_DOVETAIL
 	ldr	r10, [tsk, #TI_LOCAL_FLAGS]	@ tsk(r9) is callee-saved
-	ldr	r0, =(__ARM_NR_dovetail - __NR_SYSCALL_BASE)
-	cmp	scno, r0
-	bne	slow_path
+	ldr	r0, =#__OOB_SYSCALL_BIT
+	ands	r0, scno, r0
+	beq	slow_path
 	tst	r10, #_TLF_OOB
 	beq	slow_path
 	mov	r0, sp				@ regs
@@ -282,8 +282,8 @@ fastcall_exit_check:
 slow_path:
 	tst	r10, #_TLF_DOVETAIL
 	bne	pipeline_syscall
-	cmp	scno, r0
-	bne	root_syscall
+	ands	r0, scno, r0
+	beq	root_syscall
 pipeline_syscall:
 	mov	r0, sp				@ regs
 	bl	__pipeline_syscall
