@@ -1733,8 +1733,11 @@ extern long vfs_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 #ifdef CONFIG_COMPAT
 extern long compat_ptr_ioctl(struct file *file, unsigned int cmd,
 					unsigned long arg);
+extern long compat_ptr_oob_ioctl(struct file *file, unsigned int cmd,
+				 unsigned long arg);
 #else
 #define compat_ptr_ioctl NULL
+#define compat_ptr_oob_ioctl NULL
 #endif
 
 /*
@@ -1837,6 +1840,7 @@ struct file_operations {
 	ssize_t (*oob_read) (struct file *, char __user *, size_t);
 	ssize_t (*oob_write) (struct file *, const char __user *, size_t);
 	long (*oob_ioctl) (struct file *, unsigned int, unsigned long);
+	long (*compat_oob_ioctl) (struct file *, unsigned int, unsigned long);
 	__poll_t (*oob_poll) (struct file *, struct oob_poll_wait *);
 	int (*mmap) (struct file *, struct vm_area_struct *);
 	unsigned long mmap_supported_flags;
