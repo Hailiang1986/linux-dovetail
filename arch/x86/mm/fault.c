@@ -772,7 +772,7 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 			/* XXX: hwpoison faults will set the wrong code. */
 			force_sig_fault(signal, si_code, (void __user *)address);
 
-			pipelined_fault_exit(entry_flags);
+			pipelined_fault_exit(X86_TRAP_PF, regs, entry_flags);
 		}
 
 		/*
@@ -866,7 +866,7 @@ oops:
 	oops_end(flags, regs, sig);
 
 	if (!user_mode(regs))
-		pipelined_fault_exit(entry_flags);
+		pipelined_fault_exit(X86_TRAP_PF, regs, entry_flags);
 }
 
 /*
@@ -1550,7 +1550,7 @@ __do_page_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	else {
 		flags = pipelined_fault_entry(X86_TRAP_PF, regs);
 		do_user_addr_fault(regs, hw_error_code, address);
-		pipelined_fault_exit(flags);
+		pipelined_fault_exit(X86_TRAP_PF, regs, flags);
 	}
 }
 NOKPROBE_SYMBOL(__do_page_fault);
