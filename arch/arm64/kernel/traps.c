@@ -399,13 +399,15 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 
 	/* check for AArch32 breakpoint instructions */
 	if (!aarch32_break_handler(regs))
-		return;
+		goto out;
 
 	if (call_undef_hook(regs) == 0)
-		return;
+		goto out;
 
 	BUG_ON(!user_mode(regs));
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+out:
+	oob_trap_finalize(ARM64_TRAP_UNDI, regs);
 }
 
 #define __user_cache_maint(insn, address, res)			\
@@ -815,6 +817,8 @@ asmlinkage void bad_el0_sync(struct pt_regs *regs, int reason, unsigned int esr)
 
 	arm64_force_sig_fault(SIGILL, ILL_ILLOPC, pc,
 			      "Bad EL0 synchronous exception");
+
+	oob_trap_finalize(ARM64_TRAP_UNDSE, regs);
 }
 
 #ifdef CONFIG_VMAP_STACK
