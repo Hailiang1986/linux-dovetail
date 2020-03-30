@@ -48,11 +48,21 @@ int pipeline_syscall(unsigned int nr, struct pt_regs *regs);
 void __oob_trap_notify(unsigned int trapnr,
 		       struct pt_regs *regs);
 
+void __oob_trap_finalize(unsigned int trapnr,
+			struct pt_regs *regs);
+
 static inline void oob_trap_notify(unsigned int trapnr,
 				   struct pt_regs *regs)
 {
 	if (running_oob())
 		__oob_trap_notify(trapnr, regs);
+}
+
+static inline void oob_trap_finalize(unsigned int trapnr,
+				   struct pt_regs *regs)
+{
+	if (test_thread_local_flags(_TLF_OOBTRAP))
+		__oob_trap_finalize(trapnr, regs);
 }
 
 void inband_event_notify(enum inband_event_type,
@@ -251,7 +261,12 @@ struct files_struct;
 static inline
 void inband_task_init(struct task_struct *p) { }
 
-#define oob_trap_notify(__trapnr, __regs)	 do { } while (0)
+/*
+ * Keep the trap notifier and finalizer as macros, we might not be
+ * able to resolve trap numbers if CONFIG_DOVETAIL is off.
+ */
+#define oob_trap_notify(__trapnr, __regs)    do { } while (0)
+#define oob_trap_finalize(__trapnr, __regs)  do { } while (0)
 
 static inline
 int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
