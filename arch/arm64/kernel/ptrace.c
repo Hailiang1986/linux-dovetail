@@ -202,6 +202,8 @@ static void ptrace_hbptriggered(struct perf_event *bp,
 	arm64_force_sig_fault(SIGTRAP, TRAP_HWBKPT,
 			      (void __user *)(bkpt->trigger),
 			      desc);
+
+	oob_trap_finalize(ARM64_TRAP_DEBUG, regs);
 }
 
 /*
