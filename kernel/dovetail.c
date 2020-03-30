@@ -232,13 +232,16 @@ int pipeline_syscall(unsigned int nr, struct pt_regs *regs)
 	return 0; /* pass syscall down to the host. */
 }
 
-void __weak handle_oob_trap(unsigned int trapnr, struct pt_regs *regs)
+void __weak handle_oob_trap_entry(unsigned int trapnr, struct pt_regs *regs)
 {
 }
 
 void __oob_trap_notify(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
+
+	WARN_ON_ONCE(dovetail_debug() &&
+		test_thread_local_flags(_TLF_OOBTRAP));
 
 	/*
 	 * We send a notification about all traps raised over a
@@ -250,10 +253,31 @@ void __oob_trap_notify(unsigned int exception, struct pt_regs *regs)
 	 * protect the call accordingly.
 	 */
 	if (dovetail_enabled) {
+		set_thread_local_flags(_TLF_OOBTRAP);
 		flags = hard_local_irq_save();
-		handle_oob_trap(exception, regs);
+		handle_oob_trap_entry(exception, regs);
 		hard_local_irq_restore(flags);
 	}
+}
+
+void __weak handle_oob_trap_exit(unsigned int trapnr, struct pt_regs *regs)
+{
+}
+
+void __oob_trap_finalize(unsigned int exception, struct pt_regs *regs)
+{
+	unsigned long flags;
+
+	if (WARN_ON_ONCE(dovetail_debug() &&
+		!test_thread_local_flags(_TLF_OOBTRAP)))
+		return;
+
+	flags = hard_local_save_flags();
+	hard_local_irq_enable();
+	clear_thread_local_flags(_TLF_OOBTRAP);
+	handle_oob_trap_exit(exception, regs);
+	if (hard_irqs_disabled_flags(flags))
+		hard_local_irq_disable();
 }
 
 void __weak handle_inband_event(enum inband_event_type event, void *data)
