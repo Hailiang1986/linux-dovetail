@@ -305,6 +305,11 @@ __und_svc_fault:
 	bl	__und_fault
 
 __und_svc_finish:
+#ifdef CONFIG_DOVETAIL
+	mov	r0, #ARM_TRAP_UNDEFINSTR
+	mov	r1, sp				@ r1 = &regs
+	bl	__oob_trap_finalize
+#endif
 	get_thread_info tsk
 	ldr	r5, [sp, #S_PSR]		@ Get SVC cpsr
 	svc_exit r5				@ return from exception
