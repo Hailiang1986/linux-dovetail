@@ -104,10 +104,13 @@ unsigned long pipelined_fault_entry(int trapnr, struct pt_regs *regs)
 	return irqs_merge_flags(flags, nosync);
 }
 
-void pipelined_fault_exit(unsigned long combo)
+void pipelined_fault_exit(int trapnr, struct pt_regs *regs,
+			unsigned long combo)
 {
 	unsigned long flags;
 	int nosync;
+
+	oob_trap_finalize(trapnr, regs);
 
 	flags = irqs_split_flags(combo, &nosync);
 	if (!nosync) {
@@ -337,7 +340,7 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 		do_trap(trapnr, signr, str, regs, error_code, sicode, addr);
 	}
 
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(trapnr, regs, flags);
 }
 
 #define IP ((void __user *)uprobe_get_trap_addr(regs))
@@ -577,7 +580,7 @@ exit_trap:
 	 */
 	do_trap(X86_TRAP_BR, SIGSEGV, "bounds", regs, error_code, 0, NULL);
 out:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(X86_TRAP_BR, regs, flags);
 }
 
 dotraplinkage void
@@ -633,7 +636,7 @@ do_general_protection(struct pt_regs *regs, long error_code)
 
 	force_sig(SIGSEGV);
 out:
-	pipelined_fault_exit(flags);
+ 	pipelined_fault_exit(X86_TRAP_GP, regs, flags);
 }
 NOKPROBE_SYMBOL(do_general_protection);
 
@@ -684,7 +687,7 @@ dotraplinkage void notrace do_int3(struct pt_regs *regs, long error_code)
 	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, 0, NULL);
 	cond_local_irq_disable(regs);
 exit_fault:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(X86_TRAP_BP, regs, flags);
 
 exit:
 	ist_exit(regs, oob_entry);
@@ -887,7 +890,7 @@ dotraplinkage void do_debug(struct pt_regs *regs, long error_code)
 	debug_stack_usage_dec();
 
 exit:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(X86_TRAP_DB, regs, flags);
 out:
 	ist_exit(regs, oob_entry);
 }
@@ -940,7 +943,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	force_sig_fault(SIGFPE, si_code,
 			(void __user *)uprobe_get_trap_addr(regs));
 out:
-	pipelined_fault_exit(flags);
+	pipelined_fault_exit(trapnr, regs, flags);
 }
 
 dotraplinkage void do_coprocessor_error(struct pt_regs *regs, long error_code)
@@ -980,7 +983,7 @@ do_device_not_available(struct pt_regs *regs, long error_code)
 		info.regs = regs;
 		math_emulate(&info);
 
-		pipelined_fault_exit(flags);
+		pipelined_fault_exit(X86_TRAP_NM, regs, flags);
 		return;
 	}
 #endif
