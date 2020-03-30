@@ -62,13 +62,6 @@ static inline const struct fault_info *esr_to_debug_fault_info(unsigned int esr)
 	return debug_fault_info + DBG_ESR_EVT(esr);
 }
 
-#ifdef CONFIG_DOVETAIL
-#define fault_entry(__exception, __regs)	__fault_entry(__exception, __regs)
-#else
-/* Do not depend on trap id. definitions from asm/dovetail.h */
-#define fault_entry(__exception, __regs)	__fault_entry(-1, __regs)
-#endif
-
 #ifdef CONFIG_IRQ_PIPELINE
 /*
  * We need to synchronize the virtual interrupt state with the hard
@@ -83,7 +76,7 @@ static inline const struct fault_info *esr_to_debug_fault_info(unsigned int esr)
  */
 
 static inline
-unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
+unsigned long fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
@@ -105,12 +98,15 @@ unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 	return irqs_merge_flags(flags, nosync);
 }
 
-static inline void fault_exit(unsigned long combo)
+static inline void fault_exit(int exception, struct pt_regs *regs,
+			unsigned long combo)
 {
 	unsigned long flags;
 	int nosync;
 
 	WARN_ON_ONCE(irq_pipeline_debug() && hard_irqs_disabled());
+
+	oob_trap_finalize(exception, regs);
 
 	/*
 	 * '!nosync' here means that we had to turn on the stall bit
@@ -136,13 +132,9 @@ static inline void fault_exit(unsigned long combo)
 
 #else	/* !CONFIG_IRQ_PIPELINE */
 
-static inline
-unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
-{
-	return 0;
-}
-
-static inline void fault_exit(unsigned long x) { }
+#define fault_entry(__exception, __regs)  ({ 0; })
+#define fault_exit(__exception, __regs, __flags)  \
+	do { (void)(__flags); } while (0)
 
 #endif	/* !CONFIG_IRQ_PIPELINE */
 
@@ -488,7 +480,7 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 		set_thread_esr(addr, esr);
 		arm64_force_sig_fault(inf->sig, inf->code, (void __user *)addr,
 				      inf->name);
-		fault_exit(irqflags);
+		fault_exit(ARM64_TRAP_ACCESS, regs, irqflags);
 	} else {
 		/*
 		 * irq_pipeline: kernel faults are either quickly
@@ -715,7 +707,7 @@ retry:
 				      inf->name);
 	}
 out:
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ACCESS, regs, irqflags);
 
 	return 0;
 
@@ -771,7 +763,7 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 		siaddr  = (void __user *)addr;
 	arm64_notify_die(inf->name, regs, inf->sig, inf->code, siaddr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_SEA, regs, irqflags);
 
 	return 0;
 }
@@ -863,7 +855,7 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	arm64_notify_die(inf->name, regs,
 			 inf->sig, inf->code, (void __user *)addr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ABRT, regs, irqflags);
 }
 
 asmlinkage void __exception do_el0_irq_bp_hardening(void)
@@ -910,7 +902,7 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 	arm64_notify_die("SP/PC alignment exception", regs,
 			 SIGBUS, BUS_ADRALN, (void __user *)addr, esr);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_ABRT, regs, irqflags);
 }
 
 int __init early_brk64(unsigned long addr, unsigned int esr,
@@ -1046,6 +1038,6 @@ asmlinkage void __exception do_debug_exception(unsigned long addr_if_watchpoint,
 
 	debug_exception_exit(regs);
 
-	fault_exit(irqflags);
+	fault_exit(ARM64_TRAP_DEBUG, regs, irqflags);
 }
 NOKPROBE_SYMBOL(do_debug_exception);
