@@ -989,6 +989,7 @@ asmlinkage void do_sve_acc(unsigned int esr, struct pt_regs *regs)
 	/* Even if we chose not to use SVE, the hardware could still trap: */
 	if (unlikely(!system_supports_sve()) || WARN_ON(is_compat_task())) {
 		force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
+		oob_trap_finalize(ARM64_TRAP_SVE, regs);
 		return;
 	}
 
@@ -1042,6 +1043,8 @@ asmlinkage void do_fpsimd_exc(unsigned int esr, struct pt_regs *regs)
 	send_sig_fault(SIGFPE, si_code,
 		       (void __user *)instruction_pointer(regs),
 		       current);
+
+	oob_trap_finalize(ARM64_TRAP_FPE, regs);
 }
 
 void fpsimd_thread_switch(struct task_struct *next)
