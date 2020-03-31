@@ -545,10 +545,10 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	unsigned long vm_flags = VM_READ | VM_WRITE | VM_EXEC, irqflags;
 	unsigned int mm_flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
-	irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
-
 	if (kprobe_page_fault(regs, esr))
-		goto out;
+		return 0;
+
+	irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
 
 	/*
 	 * If we're in an interrupt or have no user context, we must not take
