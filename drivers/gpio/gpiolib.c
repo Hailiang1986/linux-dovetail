@@ -455,11 +455,11 @@ struct linehandle_state {
 	GPIOHANDLE_REQUEST_BIAS_DISABLE | \
 	GPIOHANDLE_REQUEST_OPEN_DRAIN | \
 	GPIOHANDLE_REQUEST_OPEN_SOURCE | \
-	(IS_ENABLED(CONFIG_EVL) ? GPIOHANDLE_REQUEST_OOB : 0))
+	(IS_ENABLED(CONFIG_GPIOLIB_OOB) ? GPIOHANDLE_REQUEST_OOB : 0))
 
 static inline bool oob_handling_requested(u32 lflags)
 {
-	return IS_ENABLED(CONFIG_EVL) && lflags & GPIOHANDLE_REQUEST_OOB;
+	return IS_ENABLED(CONFIG_GPIOLIB_OOB) && lflags & GPIOHANDLE_REQUEST_OOB;
 }
 
 static int linehandle_validate_flags(u32 flags)
@@ -635,7 +635,7 @@ static long linehandle_ioctl_compat(struct file *filep, unsigned int cmd,
 }
 #endif
 
-#ifdef CONFIG_EVL
+#ifdef CONFIG_GPIOLIB_OOB
 
 static int gpio_chip_get_multiple(struct gpio_chip *chip,
 				unsigned long *mask, unsigned long *bits);
@@ -748,7 +748,7 @@ static long linehandle_oob_ioctl(struct file *filep, unsigned int cmd,
 	return -EINVAL;
 }
 
-#endif
+#endif	/* CONFIG_GPIOLIB_OOB */
 
 static int linehandle_release(struct inode *inode, struct file *filep)
 {
@@ -772,12 +772,12 @@ static const struct file_operations linehandle_fileops = {
 	.owner = THIS_MODULE,
 	.llseek = noop_llseek,
 	.unlocked_ioctl = linehandle_ioctl,
-#ifdef CONFIG_EVL
+#ifdef CONFIG_GPIOLIB_OOB
 	.oob_ioctl = linehandle_oob_ioctl,
 #endif
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = linehandle_ioctl_compat,
-#ifdef CONFIG_EVL
+#ifdef CONFIG_GPIOLIB_OOB
 	.compat_oob_ioctl = compat_ptr_oob_ioctl,
 #endif
 #endif
@@ -1082,7 +1082,7 @@ static irqreturn_t lineevent_read_pin(struct lineevent_state *le,
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_EVL
+#ifdef CONFIG_GPIOLIB_OOB
 
 static irqreturn_t lineevent_oob_irq_handler(int irq, void *p)
 {
@@ -1186,7 +1186,7 @@ static inline int lineevent_init_oob_state(struct lineevent_state *le,
 	return -EINVAL;
 }
 
-#endif	/* !CONFIG_EVL */
+#endif	/* !CONFIG_GPIOLIB_OOB */
 
 static int lineevent_release(struct inode *inode, struct file *filep)
 {
@@ -1244,7 +1244,7 @@ static long lineevent_ioctl_compat(struct file *filep, unsigned int cmd,
 static const struct file_operations lineevent_fileops = {
 	.release = lineevent_release,
 	.read = lineevent_read,
-#ifdef CONFIG_EVL
+#ifdef CONFIG_GPIOLIB_OOB
 	.oob_read = lineevent_oob_read,
 	.oob_poll = lineevent_oob_poll,
 #endif
