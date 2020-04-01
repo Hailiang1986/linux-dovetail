@@ -165,6 +165,8 @@ void __bad_spinlock_type(void);
 		.rlock = __HARD_SPIN_LOCK_UNLOCKED(x),	\
 	}
 
+#define DECLARE_HARD_SPINLOCK(x)	hard_spinlock_t x
+
 struct phony_lockdep_map {
 	/* empty */
 };
@@ -178,6 +180,8 @@ typedef struct hard_spinlock {
 #define DEFINE_MUTABLE_SPINLOCK(x)	mutable_spinlock_t x = {	\
 		.rlock = __RAW_SPIN_LOCK_UNLOCKED(x),			\
 	}
+
+#define DECLARE_MUTABLE_SPINLOCK(x)	mutable_spinlock_t x
 
 typedef struct mutable_spinlock {
 	/* XXX: offset_of(struct mutable_spinlock, rlock) == 0 */
@@ -206,7 +210,11 @@ typedef raw_spinlock_t mutable_spinlock_t;
 
 #define DEFINE_HARD_SPINLOCK(x)		DEFINE_RAW_SPINLOCK(x)
 
+#define DECLARE_HARD_SPINLOCK(x)	raw_spinlock_t x
+
 #define DEFINE_MUTABLE_SPINLOCK(x)	DEFINE_RAW_SPINLOCK(x)
+
+#define DECLARE_MUTABLE_SPINLOCK(x)	raw_spinlock_t x
 
 #define __RAWLOCK(x) (x)
 
