@@ -437,10 +437,20 @@ static void bcm2835_dma_abort(struct bcm2835_chan *c)
 	writel(BCM2835_DMA_RESET, chan_base + BCM2835_DMA_CS);
 }
 
+static inline void bcm2835_dma_enable_channel(struct bcm2835_chan *c)
+{
+	writel(c->desc->cb_list[0].paddr, c->chan_base + BCM2835_DMA_ADDR);
+	writel(BCM2835_DMA_ACTIVE, c->chan_base + BCM2835_DMA_CS);
+}
+
+static inline bool bcm2835_dma_oob_capable(void)
+{
+	return IS_ENABLED(CONFIG_DMA_BCM2835_OOB);
+}
+
 static void bcm2835_dma_start_desc(struct bcm2835_chan *c)
 {
 	struct virt_dma_desc *vd = vchan_next_desc(&c->vc);
-	struct bcm2835_desc *d;
 
 	if (!vd) {
 		c->desc = NULL;
@@ -449,10 +459,36 @@ static void bcm2835_dma_start_desc(struct bcm2835_chan *c)
 
 	list_del(&vd->node);
 
-	c->desc = d = to_bcm2835_dma_desc(&vd->tx);
+	c->desc = to_bcm2835_dma_desc(&vd->tx);
+	if (!bcm2835_dma_oob_capable() || !vchan_oob_pulsed(vd))
+		bcm2835_dma_enable_channel(c);
+}
 
-	writel(d->cb_list[0].paddr, c->chan_base + BCM2835_DMA_ADDR);
-	writel(BCM2835_DMA_ACTIVE, c->chan_base + BCM2835_DMA_CS);
+static bool do_channel(struct bcm2835_chan *c, struct bcm2835_desc *d)
+{
+	struct dmaengine_desc_callback cb;
+
+	if (running_oob()) {
+		if (!vchan_oob_handled(&d->vd))
+			return false;
+		dmaengine_desc_get_callback(&d->vd.tx, &cb);
+		if (dmaengine_desc_callback_valid(&cb)) {
+			vchan_unlock(&c->vc);
+			dmaengine_desc_callback_invoke(&cb, NULL);
+			vchan_lock(&c->vc);
+		}
+		return true;
+	}
+
+	if (d->cyclic) {
+		/* call the cyclic callback */
+		vchan_cyclic_callback(&d->vd);
+	} else if (!readl(c->chan_base + BCM2835_DMA_ADDR)) {
+		vchan_cookie_complete(&c->desc->vd);
+		bcm2835_dma_start_desc(c);
+	}
+
+	return true;
 }
 
 static irqreturn_t bcm2835_dma_callback(int irq, void *data)
@@ -470,7 +506,8 @@ static irqreturn_t bcm2835_dma_callback(int irq, void *data)
 			return IRQ_NONE;
 	}
 
-	spin_lock_irqsave(&c->vc.lock, flags);
+	/* CAUTION: If running in-band, hard irqs are on. */
+	vchan_lock_irqsave(&c->vc, flags);
 
 	/*
 	 * Clear the INT flag to receive further interrupts. Keep the channel
@@ -483,18 +520,26 @@ static irqreturn_t bcm2835_dma_callback(int irq, void *data)
 	       c->chan_base + BCM2835_DMA_CS);
 
 	d = c->desc;
+	if (!d)
+		goto out;
 
-	if (d) {
-		if (d->cyclic) {
-			/* call the cyclic callback */
-			vchan_cyclic_callback(&d->vd);
-		} else if (!readl(c->chan_base + BCM2835_DMA_ADDR)) {
-			vchan_cookie_complete(&c->desc->vd);
-			bcm2835_dma_start_desc(c);
-		}
+#ifdef CONFIG_DMA_BCM2835_OOB
+	if (running_oob()) {
+		/*
+		 * If we cannot process this from out-of-band request,
+		 * plan for call back from in-band context.
+		 */
+		if (!do_channel(c, d))
+			irq_post_inband(irq);
+	} else {
+		do_channel(c, d);
 	}
+#else
+	do_channel(c, d);
+#endif
 
-	spin_unlock_irqrestore(&c->vc.lock, flags);
+out:
+	vchan_unlock_irqrestore(&c->vc, flags);
 
 	return IRQ_HANDLED;
 }
@@ -573,7 +618,7 @@ static enum dma_status bcm2835_dma_tx_status(struct dma_chan *chan,
 	if (ret == DMA_COMPLETE || !txstate)
 		return ret;
 
-	spin_lock_irqsave(&c->vc.lock, flags);
+	vchan_lock_irqsave(&c->vc, flags);
 	vd = vchan_find_desc(&c->vc, cookie);
 	if (vd) {
 		txstate->residue =
@@ -594,7 +639,7 @@ static enum dma_status bcm2835_dma_tx_status(struct dma_chan *chan,
 		txstate->residue = 0;
 	}
 
-	spin_unlock_irqrestore(&c->vc.lock, flags);
+	vchan_unlock_irqrestore(&c->vc, flags);
 
 	return ret;
 }
@@ -604,12 +649,32 @@ static void bcm2835_dma_issue_pending(struct dma_chan *chan)
 	struct bcm2835_chan *c = to_bcm2835_dma_chan(chan);
 	unsigned long flags;
 
-	spin_lock_irqsave(&c->vc.lock, flags);
+	vchan_lock_irqsave(&c->vc, flags);
 	if (vchan_issue_pending(&c->vc) && !c->desc)
 		bcm2835_dma_start_desc(c);
 
-	spin_unlock_irqrestore(&c->vc.lock, flags);
+	vchan_unlock_irqrestore(&c->vc, flags);
 }
+
+#ifdef CONFIG_DMA_BCM2835_OOB
+static int bcm2835_dma_pulse_oob(struct dma_chan *chan)
+{
+	struct bcm2835_chan *c = to_bcm2835_dma_chan(chan);
+	unsigned long flags;
+	int ret = -EIO;
+
+	vchan_lock_irqsave(&c->vc, flags);
+	if (c->desc && vchan_oob_pulsed(&c->desc->vd)) {
+		bcm2835_dma_enable_channel(c);
+		ret = 0;
+	}
+	vchan_unlock_irqrestore(&c->vc, flags);
+
+	return ret;
+}
+#else
+#define bcm2835_dma_pulse_oob  NULL
+#endif
 
 static struct dma_async_tx_descriptor *bcm2835_dma_prep_dma_memcpy(
 	struct dma_chan *chan, dma_addr_t dst, dma_addr_t src,
@@ -651,6 +716,15 @@ static struct dma_async_tx_descriptor *bcm2835_dma_prep_slave_sg(
 	u32 info = BCM2835_DMA_WAIT_RESP;
 	u32 extra = BCM2835_DMA_INT_EN;
 	size_t frames;
+
+	if (!bcm2835_dma_oob_capable()) {
+		if (flags & (DMA_OOB_INTERRUPT|DMA_OOB_PULSE)) {
+			dev_err(chan->device->dev,
+				"%s: out-of-band slave transfers disabled\n",
+				__func__);
+			return NULL;
+		}
+	}
 
 	if (!is_slave_direction(direction)) {
 		dev_err(chan->device->dev,
@@ -717,7 +791,21 @@ static struct dma_async_tx_descriptor *bcm2835_dma_prep_dma_cyclic(
 		return NULL;
 	}
 
-	if (flags & DMA_PREP_INTERRUPT)
+	if (!bcm2835_dma_oob_capable()) {
+		if (flags & DMA_OOB_INTERRUPT) {
+			dev_err(chan->device->dev,
+				"%s: out-of-band cyclic transfers disabled\n",
+				__func__);
+			return NULL;
+		}
+	} else if (flags & DMA_OOB_PULSE) {
+		dev_err(chan->device->dev,
+			"%s: no pulse mode with out-of-band cyclic transfers\n",
+			__func__);
+		return NULL;
+	}
+
+	if (flags & (DMA_PREP_INTERRUPT|DMA_OOB_INTERRUPT))
 		extra |= BCM2835_DMA_INT_EN;
 	else
 		period_len = buf_len;
@@ -793,7 +881,7 @@ static int bcm2835_dma_terminate_all(struct dma_chan *chan)
 	unsigned long flags;
 	LIST_HEAD(head);
 
-	spin_lock_irqsave(&c->vc.lock, flags);
+	vchan_lock_irqsave(&c->vc, flags);
 
 	/* stop DMA activity */
 	if (c->desc) {
@@ -806,7 +894,7 @@ static int bcm2835_dma_terminate_all(struct dma_chan *chan)
 	}
 
 	vchan_get_all_descriptors(&c->vc, &head);
-	spin_unlock_irqrestore(&c->vc.lock, flags);
+	vchan_unlock_irqrestore(&c->vc, flags);
 	vchan_dma_desc_free_list(&c->vc, &head);
 
 	return 0;
@@ -918,11 +1006,13 @@ static int bcm2835_dma_probe(struct platform_device *pdev)
 	dma_cap_set(DMA_SLAVE, od->ddev.cap_mask);
 	dma_cap_set(DMA_PRIVATE, od->ddev.cap_mask);
 	dma_cap_set(DMA_CYCLIC, od->ddev.cap_mask);
+	dma_cap_set(DMA_OOB, od->ddev.cap_mask);
 	dma_cap_set(DMA_MEMCPY, od->ddev.cap_mask);
 	od->ddev.device_alloc_chan_resources = bcm2835_dma_alloc_chan_resources;
 	od->ddev.device_free_chan_resources = bcm2835_dma_free_chan_resources;
 	od->ddev.device_tx_status = bcm2835_dma_tx_status;
 	od->ddev.device_issue_pending = bcm2835_dma_issue_pending;
+	od->ddev.device_pulse_oob = bcm2835_dma_pulse_oob;
 	od->ddev.device_prep_dma_cyclic = bcm2835_dma_prep_dma_cyclic;
 	od->ddev.device_prep_slave_sg = bcm2835_dma_prep_slave_sg;
 	od->ddev.device_prep_dma_memcpy = bcm2835_dma_prep_dma_memcpy;
@@ -988,7 +1078,7 @@ static int bcm2835_dma_probe(struct platform_device *pdev)
 			continue;
 
 		/* check if there are other channels that also use this irq */
-		irq_flags = 0;
+		irq_flags = IS_ENABLED(CONFIG_DMA_BCM2835_OOB) ? IRQF_OOB : 0;
 		for (j = 0; j <= BCM2835_DMA_MAX_DMA_CHAN_SUPPORTED; j++)
 			if ((i != j) && (irq[j] == irq[i])) {
 				irq_flags = IRQF_SHARED;
