@@ -23,6 +23,7 @@
 #include <linux/irqflags.h>
 #include <linux/context_tracking.h>
 #include <linux/irqbypass.h>
+#include <linux/dovetail.h>
 #include <linux/swait.h>
 #include <linux/refcount.h>
 #include <linux/nospec.h>
@@ -263,10 +264,11 @@ struct kvm_mmio_fragment {
 /*
  * Called when the host is about to leave the inband stage. Typically
  * used for switching the current vcpu out of guest mode before a
- * co-kernel reinstates an oob task context.
+ * companion core reinstates an oob task context.
  */
 struct kvm_oob_notifier {
 	void (*handler)(struct kvm_oob_notifier *nfy);
+	bool put_vcpu;
 };
 
 struct kvm_vcpu {
@@ -1399,6 +1401,47 @@ static inline int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 	return 0;
 }
 #endif /* CONFIG_HAVE_KVM_VCPU_RUN_PID_CHANGE */
+
+#ifdef CONFIG_DOVETAIL
+static inline void inband_init_vcpu(struct kvm_vcpu *vcpu,
+		void (*preempt_handler)(struct kvm_oob_notifier *nfy))
+{
+	vcpu->oob_notifier.handler = preempt_handler;
+	vcpu->oob_notifier.put_vcpu = false;
+}
+
+static inline void inband_enter_guest(struct kvm_vcpu *vcpu)
+{
+	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
+	WRITE_ONCE(p->vcpu_notify, &vcpu->oob_notifier);
+}
+
+static inline void inband_exit_guest(void)
+{
+	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
+	WRITE_ONCE(p->vcpu_notify, NULL);
+}
+
+static inline void inband_set_vcpu_release_state(struct kvm_vcpu *vcpu,
+						bool pending)
+{
+	vcpu->oob_notifier.put_vcpu = pending;
+}
+#else
+static inline void inband_init_vcpu(struct kvm_vcpu *vcpu,
+		void (*preempt_handler)(struct kvm_oob_notifier *nfy))
+{ }
+
+static inline void inband_enter_guest(struct kvm_vcpu *vcpu)
+{ }
+
+static inline void inband_exit_guest(void)
+{ }
+
+static inline void inband_set_vcpu_release_state(struct kvm_vcpu *vcpu,
+						bool pending)
+{ }
+#endif
 
 typedef int (*kvm_vm_thread_fn_t)(struct kvm *kvm, uintptr_t data);
 

@@ -52,7 +52,9 @@ struct irq_pipeline_data {
 #ifdef CONFIG_DOVETAIL
 	struct task_struct *task_inflight;
 	struct task_struct *rqlock_owner;
+#ifdef CONFIG_KVM
 	struct kvm_oob_notifier *vcpu_notify;
+#endif
 #endif
 };
 
