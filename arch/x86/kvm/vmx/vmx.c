@@ -1217,19 +1217,23 @@ static void vmx_prepare_switch_to_host(struct vcpu_vmx *vmx)
 #ifdef CONFIG_X86_64
 static u64 vmx_read_guest_kernel_gs_base(struct vcpu_vmx *vmx)
 {
-	preempt_disable();
+	unsigned long flags;
+
+	flags = hard_preempt_disable();
 	if (vmx->guest_state_loaded)
 		rdmsrl(MSR_KERNEL_GS_BASE, vmx->msr_guest_kernel_gs_base);
-	preempt_enable();
+	hard_preempt_enable(flags);
 	return vmx->msr_guest_kernel_gs_base;
 }
 
 static void vmx_write_guest_kernel_gs_base(struct vcpu_vmx *vmx, u64 data)
 {
-	preempt_disable();
+	unsigned long flags;
+
+	flags = hard_preempt_disable();
 	if (vmx->guest_state_loaded)
 		wrmsrl(MSR_KERNEL_GS_BASE, data);
-	preempt_enable();
+	hard_preempt_enable(flags);
 	vmx->msr_guest_kernel_gs_base = data;
 }
 #endif
@@ -1657,6 +1661,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 {
 	int save_nmsrs, index;
 
+	hard_cond_local_irq_disable();
 	save_nmsrs = 0;
 #ifdef CONFIG_X86_64
 	/*
@@ -1684,6 +1689,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 
 	vmx->save_nmsrs = save_nmsrs;
 	vmx->guest_msrs_ready = false;
+	hard_cond_local_irq_enable();
 
 	if (cpu_has_vmx_msr_bitmap())
 		vmx_update_msr_bitmap(&vmx->vcpu);
@@ -1908,6 +1914,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	u32 msr_index = msr_info->index;
 	u64 data = msr_info->data;
 	u32 index;
+	unsigned long flags;
 
 	switch (msr_index) {
 	case MSR_EFER:
@@ -2159,10 +2166,11 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			u64 old_msr_data = msr->data;
 			msr->data = data;
 			if (msr - vmx->guest_msrs < vmx->save_nmsrs) {
-				preempt_disable();
+				flags = hard_preempt_disable();
+				inband_enter_guest(vcpu);
 				ret = kvm_set_shared_msr(msr->index, msr->data,
 							 msr->mask);
-				preempt_enable();
+				hard_preempt_enable(flags);
 				if (ret)
 					msr->data = old_msr_data;
 			}
@@ -6754,7 +6762,9 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 	vmx_vcpu_load(&vmx->vcpu, cpu);
 	vmx->vcpu.cpu = cpu;
 	vmx_vcpu_setup(vmx);
+	hard_cond_local_irq_disable();
 	vmx_vcpu_put(&vmx->vcpu);
+	hard_cond_local_irq_enable();
 	put_cpu();
 	if (cpu_need_virtualize_apic_accesses(&vmx->vcpu)) {
 		err = alloc_apic_access_page(kvm);
