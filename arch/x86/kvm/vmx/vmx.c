@@ -644,15 +644,16 @@ struct shared_msr_entry *find_msr_entry(struct vcpu_vmx *vmx, u32 msr)
 
 static int vmx_set_guest_msr(struct vcpu_vmx *vmx, struct shared_msr_entry *msr, u64 data)
 {
+	unsigned long flags;
 	int ret = 0;
 
 	u64 old_msr_data = msr->data;
 	msr->data = data;
 	if (msr - vmx->guest_msrs < vmx->save_nmsrs) {
-		preempt_disable();
+		flags = hard_preempt_disable();
 		ret = kvm_set_shared_msr(msr->index, msr->data,
 					 msr->mask);
-		preempt_enable();
+		hard_preempt_enable(flags);
 		if (ret)
 			msr->data = old_msr_data;
 	}
@@ -1235,19 +1236,23 @@ static void vmx_prepare_switch_to_host(struct vcpu_vmx *vmx)
 #ifdef CONFIG_X86_64
 static u64 vmx_read_guest_kernel_gs_base(struct vcpu_vmx *vmx)
 {
-	preempt_disable();
+	unsigned long flags;
+
+	flags = hard_preempt_disable();
 	if (vmx->guest_state_loaded)
 		rdmsrl(MSR_KERNEL_GS_BASE, vmx->msr_guest_kernel_gs_base);
-	preempt_enable();
+	hard_preempt_enable(flags);
 	return vmx->msr_guest_kernel_gs_base;
 }
 
 static void vmx_write_guest_kernel_gs_base(struct vcpu_vmx *vmx, u64 data)
 {
-	preempt_disable();
+	unsigned long flags;
+
+	flags = hard_preempt_disable();
 	if (vmx->guest_state_loaded)
 		wrmsrl(MSR_KERNEL_GS_BASE, data);
-	preempt_enable();
+	hard_preempt_enable(flags);
 	vmx->msr_guest_kernel_gs_base = data;
 }
 #endif
@@ -1728,6 +1733,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 {
 	int save_nmsrs, index;
 
+	hard_cond_local_irq_disable();
 	save_nmsrs = 0;
 #ifdef CONFIG_X86_64
 	/*
@@ -1758,6 +1764,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 
 	vmx->save_nmsrs = save_nmsrs;
 	vmx->guest_msrs_ready = false;
+	hard_cond_local_irq_enable();
 
 	if (cpu_has_vmx_msr_bitmap())
 		vmx_update_msr_bitmap(&vmx->vcpu);
@@ -1992,6 +1999,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	u32 msr_index = msr_info->index;
 	u64 data = msr_info->data;
 	u32 index;
+	unsigned long flags;
 
 	switch (msr_index) {
 	case MSR_EFER:
@@ -2232,10 +2240,20 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 	default:
 	find_shared_msr:
+		/*
+		 * Guest MSRs may be activated independently from
+		 * vcpu_run(): rely on the notifier for restoring them
+		 * upon preemption by the companion core, right before
+		 * the current CPU switches to out-of-band scheduling
+		 * (see dovetail_context_switch()).
+		 */
 		msr = find_msr_entry(vmx, msr_index);
-		if (msr)
+		if (msr) {
+			flags = hard_cond_local_irq_save();
+			inband_enter_guest(vcpu);
 			ret = vmx_set_guest_msr(vmx, msr, data);
-		else
+			hard_cond_local_irq_restore(flags);
+		} else
 			ret = kvm_set_msr_common(vcpu, msr_info);
 	}
 
@@ -6925,7 +6943,9 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 	vmx_vcpu_load(vcpu, cpu);
 	vcpu->cpu = cpu;
 	init_vmcs(vmx);
+	hard_cond_local_irq_disable();
 	vmx_vcpu_put(vcpu);
+	hard_cond_local_irq_enable();
 	put_cpu();
 	if (cpu_need_virtualize_apic_accesses(vcpu)) {
 		err = alloc_apic_access_page(vcpu->kvm);

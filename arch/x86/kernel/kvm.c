@@ -234,6 +234,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 {
 	u32 reason = kvm_read_and_reset_apf_flags();
 	struct rcu_exit_state rcu_exit;
+	unsigned long flags;
 
 	switch (reason) {
 	case KVM_PV_REASON_PAGE_NOT_PRESENT:
@@ -246,6 +247,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 	rcu_exit = idtentry_enter_cond_rcu(regs);
 	oob_trap_notify(X86_TRAP_OTHER, regs);
 	instrumentation_begin();
+	flags = hard_cond_local_irq_save();
 
 	/*
 	 * If the host managed to inject an async #PF into an interrupt
@@ -264,6 +266,7 @@ noinstr bool __kvm_handle_async_pf(struct pt_regs *regs, u32 token)
 		kvm_async_pf_task_wake(token);
 	}
 
+	hard_cond_local_irq_restore(flags);
 	instrumentation_end();
 	oob_trap_unwind(X86_TRAP_OTHER, regs);
 	idtentry_exit_cond_rcu(regs, rcu_exit);
@@ -584,17 +587,17 @@ static void kvm_guest_cpu_offline(void)
 
 static int kvm_cpu_online(unsigned int cpu)
 {
-	local_irq_disable();
+	local_irq_disable_full();
 	kvm_guest_cpu_init();
-	local_irq_enable();
+	local_irq_enable_full();
 	return 0;
 }
 
 static int kvm_cpu_down_prepare(unsigned int cpu)
 {
-	local_irq_disable();
+	local_irq_disable_full();
 	kvm_guest_cpu_offline();
-	local_irq_enable();
+	local_irq_enable_full();
 	return 0;
 }
 #endif
@@ -799,7 +802,7 @@ static void kvm_wait(u8 *ptr, u8 val)
 	if (in_nmi())
 		return;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 
 	if (READ_ONCE(*ptr) != val)
 		goto out;
@@ -815,7 +818,7 @@ static void kvm_wait(u8 *ptr, u8 val)
 		safe_halt();
 
 out:
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 }
 
 #ifdef CONFIG_X86_32
