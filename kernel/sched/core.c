@@ -8161,6 +8161,25 @@ void dovetail_resume_inband(void)
 }
 EXPORT_SYMBOL_GPL(dovetail_resume_inband);
 
+#ifdef CONFIG_KVM
+
+#include <linux/kvm_host.h>
+
+static inline void notify_guest_preempt(void)
+{
+	struct kvm_oob_notifier *nfy;
+	struct irq_pipeline_data *p;
+
+	p = raw_cpu_ptr(&irq_pipeline);
+	nfy = p->vcpu_notify;
+	if (unlikely(nfy))
+		nfy->handler(nfy);
+}
+#else
+static inline void notify_guest_preempt(void)
+{ }
+#endif
+
 bool dovetail_context_switch(struct dovetail_altsched_context *out,
 			struct dovetail_altsched_context *in,
 			bool leave_inband)
@@ -8179,9 +8198,12 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 		 */
 		out->task = tsk;
 		out->active_mm = tsk->active_mm;
-
-		if (IS_ENABLED(CONFIG_KVM))
-			oob_notify_kvm();
+		/*
+		 * Switching out-of-band may require some housekeeping
+		 * from a kernel VM which might currently run guest
+		 * code, notify it about the upcoming preemption.
+		 */
+		notify_guest_preempt();
 	}
 
 	arch_dovetail_switch_prepare(leave_inband);
