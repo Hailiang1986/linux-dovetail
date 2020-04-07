@@ -133,11 +133,11 @@ static void l2c_enable(void __iomem *base, unsigned num_lock)
 
 	l2x0_data->unlock(base, num_lock);
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	__l2c_op_way(base + L2X0_INV_WAY);
 	writel_relaxed(0, base + sync_reg_offset);
 	l2c_wait_mask(base + sync_reg_offset, 1);
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 
 	l2c_write_sec(L2X0_CTRL_EN, base, L2X0_CTRL);
 }
@@ -238,7 +238,7 @@ static void l2c210_flush_all(void)
 {
 	void __iomem *base = l2x0_base;
 
-	BUG_ON(!irqs_disabled());
+	BUG_ON(!hard_irqs_disabled());
 
 	__l2c_op_way(base + L2X0_CLEAN_INV_WAY);
 	__l2c210_cache_sync(base);
