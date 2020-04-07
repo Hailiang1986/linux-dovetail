@@ -132,32 +132,11 @@ void prepare_inband_switch(struct task_struct *next)
 	hard_local_irq_disable();
 }
 
-static inline void inband_enter_guest(struct kvm_oob_notifier *nfy)
-{
-	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
-	p->vcpu_notify = nfy;
-	barrier();
-}
-
-static inline void inband_exit_guest(void)
-{
-	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
-	p->vcpu_notify = NULL;
-	barrier();
-}
-
 void inband_retuser_notify(void);
 
 int inband_switch_tail(void);
 
 void oob_trampoline(void);
-
-#ifdef CONFIG_KVM
-void oob_notify_kvm(void);
-#else
-static inline void oob_notify_kvm(void)
-{ }
-#endif
 
 void arch_inband_task_init(struct task_struct *p);
 
@@ -294,10 +273,6 @@ static inline void inband_ptstep_notify(struct task_struct *tracee) { }
 static inline void oob_trampoline(void) { }
 
 static inline void prepare_inband_switch(struct task_struct *next) { }
-
-#define inband_enter_guest(__nfy)	do { } while (0)
-
-#define inband_exit_guest()		do { } while (0)
 
 static inline int inband_switch_tail(void)
 {
