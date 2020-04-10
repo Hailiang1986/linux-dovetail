@@ -1402,7 +1402,7 @@ static inline int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 }
 #endif /* CONFIG_HAVE_KVM_VCPU_RUN_PID_CHANGE */
 
-#ifdef CONFIG_DOVETAIL
+#if defined(CONFIG_DOVETAIL) && defined(CONFIG_KVM)
 static inline void inband_init_vcpu(struct kvm_vcpu *vcpu,
 		void (*preempt_handler)(struct kvm_oob_notifier *nfy))
 {
