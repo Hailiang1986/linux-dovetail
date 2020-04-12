@@ -3838,8 +3838,12 @@ int spi_prepare_oob_transfer(struct spi_device *spi,
 	void *iobuf;
 	int ret;
 
-	/* Out-of-band transfers require DMA support. */
+	/* Controller must support oob transactions. */
 	ctlr = spi->controller;
+	if (!ctlr->prepare_oob_transfer)
+		return -ENOTSUPP;
+
+	/* Out-of-band transfers require DMA support. */
 	if (!ctlr->can_dma)
 		return -ENODEV;
 
@@ -3873,11 +3877,9 @@ int spi_prepare_oob_transfer(struct spi_device *spi,
 	if (ret)
 		goto fail_bus_lock;
 
-	if (ctlr->prepare_oob_transfer) {
-		ret = ctlr->prepare_oob_transfer(ctlr, xfer);
-		if (ret)
-			goto fail_prep_xfer;
-	}
+	ret = ctlr->prepare_oob_transfer(ctlr, xfer);
+	if (ret)
+		goto fail_prep_xfer;
 
 	return 0;
 
