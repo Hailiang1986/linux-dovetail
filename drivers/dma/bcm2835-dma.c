@@ -491,6 +491,11 @@ static bool do_channel(struct bcm2835_chan *c, struct bcm2835_desc *d)
 	return true;
 }
 
+static inline bool is_base_irq_handler(void)
+{
+	return !bcm2835_dma_oob_capable() || running_oob();
+}
+
 static irqreturn_t bcm2835_dma_callback(int irq, void *data)
 {
 	struct bcm2835_chan *c = data;
@@ -498,7 +503,7 @@ static irqreturn_t bcm2835_dma_callback(int irq, void *data)
 	unsigned long flags;
 
 	/* check the shared interrupt */
-	if (c->irq_flags & IRQF_SHARED) {
+	if (is_base_irq_handler() && c->irq_flags & IRQF_SHARED) {
 		/* check if the interrupt is enabled */
 		flags = readl(c->chan_base + BCM2835_DMA_CS);
 		/* if not set then we are not the reason for the irq */
@@ -516,27 +521,24 @@ static irqreturn_t bcm2835_dma_callback(int irq, void *data)
 	 * if this IRQ handler is threaded.) If the channel is finished, it
 	 * will remain idle despite the ACTIVE flag being set.
 	 */
-	writel(BCM2835_DMA_INT | BCM2835_DMA_ACTIVE,
-	       c->chan_base + BCM2835_DMA_CS);
+	if (is_base_irq_handler())
+		writel(BCM2835_DMA_INT | BCM2835_DMA_ACTIVE,
+			c->chan_base + BCM2835_DMA_CS);
 
 	d = c->desc;
 	if (!d)
 		goto out;
 
-#ifdef CONFIG_DMA_BCM2835_OOB
-	if (running_oob()) {
+	if (bcm2835_dma_oob_capable() && running_oob()) {
 		/*
-		 * If we cannot process this from out-of-band request,
-		 * plan for call back from in-band context.
+		 * If we cannot process this from the out-of-band
+		 * stage, schedule a callback from in-band context.
 		 */
 		if (!do_channel(c, d))
 			irq_post_inband(irq);
 	} else {
 		do_channel(c, d);
 	}
-#else
-	do_channel(c, d);
-#endif
 
 out:
 	vchan_unlock_irqrestore(&c->vc, flags);
@@ -1081,7 +1083,7 @@ static int bcm2835_dma_probe(struct platform_device *pdev)
 		irq_flags = IS_ENABLED(CONFIG_DMA_BCM2835_OOB) ? IRQF_OOB : 0;
 		for (j = 0; j <= BCM2835_DMA_MAX_DMA_CHAN_SUPPORTED; j++)
 			if ((i != j) && (irq[j] == irq[i])) {
-				irq_flags = IRQF_SHARED;
+				irq_flags |= IRQF_SHARED;
 				break;
 			}
 
