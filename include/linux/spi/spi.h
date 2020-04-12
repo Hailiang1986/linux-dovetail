@@ -584,6 +584,8 @@ struct spi_controller {
 				struct spi_oob_transfer *xfer);
 	void (*start_oob_transfer)(struct spi_controller *ctlr,
 				struct spi_oob_transfer *xfer);
+	void (*pulse_oob_transfer)(struct spi_controller *ctlr,
+				struct spi_oob_transfer *xfer);
 	void (*terminate_oob_transfer)(struct spi_controller *ctlr,
 				struct spi_oob_transfer *xfer);
 
