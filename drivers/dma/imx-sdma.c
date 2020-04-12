@@ -1567,7 +1567,8 @@ static struct dma_async_tx_descriptor *sdma_prep_slave_sg(
 
 		if (i + 1 == sg_len) {
 			param |= BD_INTR;
-			param |= BD_LAST;
+			if (!sdma_oob_capable() || !(flags & DMA_OOB_PULSE))
+				param |= BD_LAST;
 			param &= ~BD_CONT;
 		}
 
@@ -1784,8 +1785,9 @@ static int sdma_pulse_oob(struct dma_chan *chan)
 
 	vchan_lock_irqsave(&sdmac->vc, flags);
 	if (desc && vchan_oob_pulsed(&desc->vd)) {
-		for (n = 0; n < desc->num_bd; n++)
+		for (n = 0; n < desc->num_bd - 1; n++)
 			desc->bd[n].mode.status |= BD_DONE;
+		desc->bd[n].mode.status |= BD_DONE|BD_WRAP;
 		sdma_enable_channel(sdmac->sdma, sdmac->channel);
 		ret = 0;
 	}
