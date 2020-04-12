@@ -799,10 +799,10 @@ static int linehandle_create(struct gpio_device *gdev, void __user *ip)
 				"too many lines for out-of-band handling"
 				" (%u > %u fastpath)\n",
 				gdev->chip->ngpio, FASTPATH_NGPIO);
-			return -ENOTSUPP;
+			return -EOPNOTSUPP;
 		}
 		if (gdev->chip->can_sleep)
-			return -ENOTSUPP;
+			return -EOPNOTSUPP;
 	}
 
 	ret = linehandle_validate_flags(lflags);
@@ -1395,7 +1395,7 @@ static int lineevent_create(struct gpio_device *gdev, void __user *ip)
 	INIT_KFIFO(le->events);
 	if (oob_handling_requested(lflags)) {
 		if (desc->gdev->chip->can_sleep) {
-			ret = -ENOTSUPP;
+			ret = -EOPNOTSUPP;
 			goto out_free_desc;
 		}
 		ret = lineevent_init_oob_state(le, irqflags);
