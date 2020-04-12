@@ -3907,6 +3907,9 @@ int spi_pulse_oob_transfer(struct spi_oob_transfer *xfer) /* oob stage */
 	struct spi_controller *ctlr = spi->controller;
 	int ret;
 
+	if (ctlr->pulse_oob_transfer)
+		ctlr->pulse_oob_transfer(ctlr, xfer);
+
 	ret = dma_pulse_oob(ctlr->dma_rx);
 	if (likely(!ret))
 		ret = dma_pulse_oob(ctlr->dma_tx);
