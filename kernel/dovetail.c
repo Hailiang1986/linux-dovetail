@@ -9,6 +9,7 @@
 #include <linux/dovetail.h>
 #include <asm/unistd.h>
 #include <asm/syscall.h>
+#include <uapi/asm-generic/dovetail.h>
 
 static bool dovetail_enabled;
 
