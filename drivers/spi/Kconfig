@@ -135,7 +135,7 @@ config SPI_BCM2835
 
 config SPI_BCM2835_OOB
 	bool "Out-of-band support for BCM2835 SPI controller"
-	depends on SPI_BCM2835
+	depends on SPI_BCM2835 && DOVETAIL
 	select SPI_OOB
 	help
 	  Enable out-of-band cyclic transfers.
