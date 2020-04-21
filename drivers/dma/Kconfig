@@ -278,7 +278,7 @@ config IMX_SDMA
 
 config IMX_SDMA_OOB
 	bool "Out-of-band support for i.MX SDMA"
-	depends on IMX_SDMA
+	depends on IMX_SDMA && DOVETAIL
 	select DMA_VIRTUAL_CHANNELS_OOB
 	help
 	  Enable out-of-band requests to i.MX SDMA.
