@@ -143,7 +143,7 @@ config DMA_BCM2835
 
 config DMA_BCM2835_OOB
 	bool "Out-of-band support for BCM2835 DMA"
-	depends on DMA_BCM2835
+	depends on DMA_BCM2835 && DOVETAIL
 	select DMA_VIRTUAL_CHANNELS_OOB
 	help
 	  Enable out-of-band requests to BCM2835 DMA.
