@@ -362,6 +362,10 @@ void disable_oob_stage(void);
 
 #else /* !CONFIG_IRQ_PIPELINE */
 
+#include <linux/irqflags.h>
+
+void call_is_nop_without_pipelining(void);
+
 static inline bool oob_stage_present(void)
 {
 	return false;
@@ -370,6 +374,11 @@ static inline bool oob_stage_present(void)
 static inline bool stage_disabled(void)
 {
 	return irqs_disabled();
+}
+
+static inline void irq_post_inband(unsigned int irq)
+{
+	call_is_nop_without_pipelining();
 }
 
 #define test_and_disable_stage(__irqsoff)			\
