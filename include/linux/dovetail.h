@@ -89,8 +89,7 @@ static inline void inband_migration_notify(struct task_struct *p, int cpu)
 
 static inline void inband_exit_notify(void)
 {
-	if (test_thread_local_flags(_TLF_DOVETAIL))
-		inband_event_notify(INBAND_TASK_EXIT, NULL);
+	inband_event_notify(INBAND_TASK_EXIT, NULL);
 }
 
 static inline void inband_cleanup_notify(struct mm_struct *mm)
