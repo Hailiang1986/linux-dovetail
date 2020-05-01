@@ -1796,7 +1796,10 @@ static int sdma_pulse_oob(struct dma_chan *chan)
 	return ret;
 }
 #else
-#define sdma_pulse_oob  NULL
+static int sdma_pulse_oob(struct dma_chan *chan)
+{
+	return -ENOTSUPP;
+}
 #endif
 
 #define SDMA_SCRIPT_ADDRS_ARRAY_SIZE_V1	34
