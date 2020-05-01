@@ -675,7 +675,10 @@ static int bcm2835_dma_pulse_oob(struct dma_chan *chan)
 	return ret;
 }
 #else
-#define bcm2835_dma_pulse_oob  NULL
+static int bcm2835_dma_pulse_oob(struct dma_chan *chan)
+{
+	return -ENOTSUPP;
+}
 #endif
 
 static struct dma_async_tx_descriptor *bcm2835_dma_prep_dma_memcpy(
