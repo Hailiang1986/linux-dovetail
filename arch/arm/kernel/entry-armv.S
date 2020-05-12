@@ -33,6 +33,7 @@
 #include "entry-header.S"
 #include <asm/entry-macro-multi.S>
 #include <asm/probes.h>
+#include <asm/dovetail.h>
 
 /*
  * Interrupt handling.
@@ -265,6 +266,16 @@ __und_svc:
 #else
 	svc_entry
 #endif
+#ifdef CONFIG_DOVETAIL
+	get_thread_info tsk
+	ldr	r0, [tsk, #TI_PREEMPT]		@ get preempt count
+	tst	r0, #TI_OOB_MASK		@ oob stage?
+	beq	1f
+	mov	r0, #ARM_TRAP_UNDEFINSTR
+	mov	r1, sp				@ r1 = &regs
+	bl	__oob_trap_notify
+1:
+#endif
 	@
 	@ call emulation code, which returns using r9 if it has emulated
 	@ the instruction, or the more conventional lr if we are to treat
@@ -294,6 +305,11 @@ __und_svc_fault:
 	bl	__und_fault
 
 __und_svc_finish:
+#ifdef CONFIG_DOVETAIL
+	mov	r0, #ARM_TRAP_UNDEFINSTR
+	mov	r1, sp				@ r1 = &regs
+	bl	__oob_trap_finalize
+#endif
 	get_thread_info tsk
 	ldr	r5, [sp, #S_PSR]		@ Get SVC cpsr
 	svc_exit r5				@ return from exception
