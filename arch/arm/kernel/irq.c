@@ -163,10 +163,10 @@ DEFINE_PER_CPU(int, irq_nesting);
 asmlinkage int __exception_irq_entry
 handle_arch_irq_pipelined(struct pt_regs *regs)
 {
-	if (!irq_nesting++) {
+	if (this_cpu_inc_return(irq_nesting) == 1) {
 		call_with_stack((void (*)(void *))handle_irq_pipelined, regs,
 				__this_cpu_read(irq_stack_ptr));
-		irq_nesting--;
+		this_cpu_dec(irq_nesting);
 		return running_inband() && !irqs_disabled();
 	}
 
