@@ -62,7 +62,7 @@ struct xgpio_instance {
 	u32 gpio_state[2];
 	u32 gpio_last_irq_read[2];
 	u32 gpio_dir[2];
-	spinlock_t gpio_lock;	/* For serializing operations */
+	hard_spinlock_t gpio_lock;	/* For serializing operations */
 	int irq;
 	struct irq_chip irqchip;
 	u32 irq_enable[2];
@@ -133,7 +133,7 @@ static void xgpio_set(struct gpio_chip *gc, unsigned int gpio, int val)
 	int index =  xgpio_index(chip, gpio);
 	int offset =  xgpio_offset(chip, gpio);
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	/* Write to GPIO signal and set its direction to output */
 	if (val)
@@ -144,7 +144,7 @@ static void xgpio_set(struct gpio_chip *gc, unsigned int gpio, int val)
 	xgpio_writereg(chip->regs + XGPIO_DATA_OFFSET +
 		       xgpio_regoffset(chip, gpio), chip->gpio_state[index]);
 
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 }
 
 /**
@@ -164,7 +164,7 @@ static void xgpio_set_multiple(struct gpio_chip *gc, unsigned long *mask,
 	int index = xgpio_index(chip, 0);
 	int offset, i;
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	/* Write to GPIO signals */
 	for (i = 0; i < gc->ngpio; i++) {
@@ -175,9 +175,9 @@ static void xgpio_set_multiple(struct gpio_chip *gc, unsigned long *mask,
 			xgpio_writereg(chip->regs + XGPIO_DATA_OFFSET +
 				       index * XGPIO_CHANNEL_OFFSET,
 				       chip->gpio_state[index]);
-			spin_unlock_irqrestore(&chip->gpio_lock, flags);
+			raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 			index =  xgpio_index(chip, i);
-			spin_lock_irqsave(&chip->gpio_lock, flags);
+			raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 		}
 		if (__test_and_clear_bit(i, mask)) {
 			offset =  xgpio_offset(chip, i);
@@ -191,7 +191,7 @@ static void xgpio_set_multiple(struct gpio_chip *gc, unsigned long *mask,
 	xgpio_writereg(chip->regs + XGPIO_DATA_OFFSET +
 		       index * XGPIO_CHANNEL_OFFSET, chip->gpio_state[index]);
 
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 }
 
 /**
@@ -210,14 +210,14 @@ static int xgpio_dir_in(struct gpio_chip *gc, unsigned int gpio)
 	int index =  xgpio_index(chip, gpio);
 	int offset =  xgpio_offset(chip, gpio);
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	/* Set the GPIO bit in shadow register and set direction as input */
 	chip->gpio_dir[index] |= BIT(offset);
 	xgpio_writereg(chip->regs + XGPIO_TRI_OFFSET +
 		       xgpio_regoffset(chip, gpio), chip->gpio_dir[index]);
 
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 
 	return 0;
 }
@@ -241,7 +241,7 @@ static int xgpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 	int index =  xgpio_index(chip, gpio);
 	int offset =  xgpio_offset(chip, gpio);
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	/* Write state of GPIO signal */
 	if (val)
@@ -256,7 +256,7 @@ static int xgpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 	xgpio_writereg(chip->regs + XGPIO_TRI_OFFSET +
 			xgpio_regoffset(chip, gpio), chip->gpio_dir[index]);
 
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 
 	return 0;
 }
@@ -394,7 +394,7 @@ static void xgpio_irq_mask(struct irq_data *irq_data)
 	int index = xgpio_index(chip, irq_offset);
 	int offset = xgpio_offset(chip, irq_offset);
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	chip->irq_enable[index] &= ~BIT(offset);
 
@@ -405,7 +405,7 @@ static void xgpio_irq_mask(struct irq_data *irq_data)
 		temp &= ~BIT(index);
 		xgpio_writereg(chip->regs + XGPIO_IPIER_OFFSET, temp);
 	}
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 }
 
 /**
@@ -421,7 +421,7 @@ static void xgpio_irq_unmask(struct irq_data *irq_data)
 	int offset = xgpio_offset(chip, irq_offset);
 	u32 old_enable = chip->irq_enable[index];
 
-	spin_lock_irqsave(&chip->gpio_lock, flags);
+	raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 
 	chip->irq_enable[index] |= BIT(offset);
 
@@ -444,7 +444,7 @@ static void xgpio_irq_unmask(struct irq_data *irq_data)
 		xgpio_writereg(chip->regs + XGPIO_IPIER_OFFSET, val);
 	}
 
-	spin_unlock_irqrestore(&chip->gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 }
 
 /**
@@ -511,7 +511,7 @@ static void xgpio_irqhandler(struct irq_desc *desc)
 			u32 data, bit;
 			unsigned int irq;
 
-			spin_lock_irqsave(&chip->gpio_lock, flags);
+			raw_spin_lock_irqsave(&chip->gpio_lock, flags);
 			data = xgpio_readreg(chip->regs + XGPIO_DATA_OFFSET +
 					     index * XGPIO_CHANNEL_OFFSET);
 			rising_events = data &
@@ -527,7 +527,7 @@ static void xgpio_irqhandler(struct irq_desc *desc)
 				index, rising_events, falling_events);
 			all_events = rising_events | falling_events;
 			chip->gpio_last_irq_read[index] = data;
-			spin_unlock_irqrestore(&chip->gpio_lock, flags);
+			raw_spin_unlock_irqrestore(&chip->gpio_lock, flags);
 
 			for_each_set_bit(bit, &all_events, 32) {
 				irq = irq_find_mapping(chip->gc.irq.domain,
@@ -592,7 +592,7 @@ static int xgpio_probe(struct platform_device *pdev)
 	if (chip->gpio_width[0] > 32)
 		return -EINVAL;
 
-	spin_lock_init(&chip->gpio_lock);
+	raw_spin_lock_init(&chip->gpio_lock);
 
 	if (of_property_read_u32(np, "xlnx,is-dual", &is_dual))
 		is_dual = 0;
