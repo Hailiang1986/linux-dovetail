@@ -191,6 +191,7 @@ void handle_synthetic_irq(struct irq_desc *desc)
 	unsigned int irq = irq_desc_get_irq(desc);
 	struct irqaction *action;
 	irqreturn_t ret;
+	void *dev_id;
 
 	if (on_pipeline_entry()) {
 		handle_oob_irq(desc);
@@ -208,7 +209,8 @@ void handle_synthetic_irq(struct irq_desc *desc)
 
 	__kstat_incr_irqs_this_cpu(desc);
 	trace_irq_handler_entry(irq, action);
-	ret = action->handler(irq, action->dev_id);
+	dev_id = raw_cpu_ptr(action->percpu_dev_id);
+	ret = action->handler(irq, dev_id);
 	trace_irq_handler_exit(irq, action, ret);
 }
 
