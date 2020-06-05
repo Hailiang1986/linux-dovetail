@@ -56,6 +56,8 @@ void irq_pipeline_nmi_exit(void);
 		arch_irqs_virtual_to_native_flags(__virt);		\
 	})
 
+#define hard_local_irq_sync()			native_irq_sync()
+
 #else /* !CONFIG_IRQ_PIPELINE */
 
 #define hard_local_save_flags()			({ unsigned long __flags; \
@@ -77,9 +79,9 @@ void irq_pipeline_nmi_exit(void);
 static inline void irq_pipeline_nmi_enter(void) { }
 static inline void irq_pipeline_nmi_exit(void) { }
 
-#endif /* !CONFIG_IRQ_PIPELINE */
+#define hard_local_irq_sync()			do { } while (0)
 
-#define hard_local_irq_sync()			native_irq_sync()
+#endif /* !CONFIG_IRQ_PIPELINE */
 
 #if defined(CONFIG_SMP) && defined(CONFIG_IRQ_PIPELINE)
 #define hard_smp_local_irq_save()		hard_local_irq_save()
