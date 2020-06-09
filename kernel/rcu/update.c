@@ -97,6 +97,11 @@ module_param(rcu_normal_after_boot, int, 0);
  */
 static bool rcu_read_lock_held_common(bool *ret)
 {
+	if (irqs_pipelined() &&
+		(hard_irqs_disabled() || running_oob())) {
+		*ret = 1;
+		return true;
+	}
 	if (!debug_lockdep_rcu_enabled()) {
 		*ret = 1;
 		return true;
@@ -116,9 +121,6 @@ int rcu_read_lock_sched_held(void)
 {
 	bool ret;
 
-	if (irqs_pipelined() &&
-	    (hard_irqs_disabled() || !running_inband()))
-		return true;
 	if (rcu_read_lock_held_common(&ret))
 		return ret;
 	return lock_is_held(&rcu_sched_lock_map) || !preemptible();
