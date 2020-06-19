@@ -10,6 +10,7 @@
 #include <linux/fs.h>
 #include <linux/sysctl.h>
 #include <linux/uaccess.h>
+#include <dovetail/poll.h>
 #include <uapi/linux/poll.h>
 #include <uapi/linux/eventpoll.h>
 
@@ -108,13 +109,6 @@ struct poll_wqueues {
 	int error;
 	int inline_index;
 	struct poll_table_entry inline_entries[N_INLINE_POLL_ENTRIES];
-};
-
-/*
- * Generic poll operation descriptor for f_op->oob_poll.
- */
-struct oob_poll_wait {
-	struct list_head next;
 };
 
 extern void poll_initwait(struct poll_wqueues *pwq);
