@@ -286,8 +286,6 @@ config PGTABLE_LEVELS
 	default 3 if ARM_LPAE
 	default 2
 
-source "kernel/Kconfig.evl"
-
 menu "System Type"
 
 config MMU
@@ -1245,6 +1243,7 @@ config SCHED_SMT
 	  places. If unsure say N here.
 
 source "kernel/Kconfig.dovetail"
+source "kernel/Kconfig.evl"
 
 config HAVE_ARM_SCU
 	bool
