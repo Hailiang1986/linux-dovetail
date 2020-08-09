@@ -1459,6 +1459,7 @@ config CC_HAVE_SHADOW_CALL_STACK
 	def_bool $(cc-option, -fsanitize=shadow-call-stack -ffixed-x18)
 
 source "kernel/Kconfig.dovetail"
+source "kernel/Kconfig.evl"
 
 config PARAVIRT
 	bool "Enable paravirtualization code"
@@ -2210,8 +2211,6 @@ config UNWIND_PATCH_PAC_INTO_SCS
 	select DYNAMIC_SCS
 
 endmenu # "Kernel Features"
-
-source "kernel/Kconfig.evl"
 
 menu "Boot options"
 
