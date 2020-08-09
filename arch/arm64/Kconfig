@@ -982,6 +982,7 @@ config SECCOMP
 	  defined by each seccomp mode.
 
 source "kernel/Kconfig.dovetail"
+source "kernel/Kconfig.evl"
 
 config PARAVIRT
 	bool "Enable paravirtualization code"
@@ -1597,8 +1598,6 @@ config STACKPROTECTOR_PER_TASK
 	depends on STACKPROTECTOR && CC_HAVE_STACKPROTECTOR_SYSREG
 
 endmenu
-
-source "kernel/Kconfig.evl"
 
 menu "Boot options"
 
