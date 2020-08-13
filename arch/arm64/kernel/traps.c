@@ -947,12 +947,16 @@ asmlinkage void do_serror(struct pt_regs *regs, unsigned int esr)
 asmlinkage void enter_from_user_mode(void)
 {
 	if (running_inband()) {
+#ifdef CONFIG_IRQ_PIPELINE
 		stall_inband_nocheck();
 		trace_hardirqs_off();
+#endif
 		CT_WARN_ON(ct_state() != CONTEXT_USER);
 		user_exit_irqoff();
+#ifdef CONFIG_IRQ_PIPELINE
 		unstall_inband_nocheck();
 		trace_hardirqs_on();
+#endif
 	}
 }
 NOKPROBE_SYMBOL(enter_from_user_mode);
