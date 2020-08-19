@@ -153,7 +153,7 @@ static inline bool hv_reenlightenment_available(void)
 		ms_hyperv.features & HV_X64_ACCESS_REENLIGHTENMENT;
 }
 
-DEFINE_IDTENTRY_SYSVEC_PIPELINED(HYPERVISOR_REENLIGHTENMENT_VECTOR,
+DEFINE_IDTENTRY_SYSVEC_PIPELINED(HYPERV_REENLIGHTENMENT_VECTOR,
 				 sysvec_hyperv_reenlightenment)
 {
 	ack_APIC_irq();
