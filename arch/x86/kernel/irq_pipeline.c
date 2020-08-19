@@ -132,10 +132,10 @@ static void do_sysvec_inband(struct irq_desc *desc)
 	case HYPERVISOR_CALLBACK_VECTOR:
 		__sysvec_hyperv_callback(regs);
 		break;
-	case HYPERVISOR_REENLIGHTENMENT_VECTOR:
+	case HYPERV_REENLIGHTENMENT_VECTOR:
 		__sysvec_hyperv_reenlightenment(regs);
 		break;
-	case HYPERVISOR_STIMER0_VECTOR:
+	case HYPERV_STIMER0_VECTOR:
 		__sysvec_hyperv_stimer0(regs);
 		break;
 #endif
