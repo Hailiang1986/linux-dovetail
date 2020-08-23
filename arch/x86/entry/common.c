@@ -929,7 +929,7 @@ __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 	bool inhcall;
 	struct rcu_exit_state rcu_exit;
 
-	rcu_exit.val = idtentry_enter_cond_rcu(regs);
+	rcu_exit = idtentry_enter_cond_rcu(regs);
 	old_regs = set_irq_regs(regs);
 
 	instrumentation_begin();
