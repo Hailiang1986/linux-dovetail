@@ -382,6 +382,17 @@ static inline void irq_post_inband(unsigned int irq)
 
 #define stage_save_flags(__flags)	raw_local_save_flags(__flags)
 
+static inline void stall_inband_nocheck(void)
+{ }
+
+static inline void unstall_inband_nocheck(void)
+{ }
+
+static inline int test_and_stall_inband_nocheck(void)
+{
+	return irqs_disabled();
+}
+
 #endif /* !CONFIG_IRQ_PIPELINE */
 
 #endif	/* !_LINUX_IRQSTAGE_H */
