@@ -1102,7 +1102,7 @@ void copy_timer_regs(struct irq_desc *desc, struct pt_regs *regs)
 	 * handler cares for such information.
 	 */
 	p = raw_cpu_ptr(&irq_pipeline);
-	arch_save_timer_regs(&p->tick_regs, regs, running_oob());
+	arch_save_timer_regs(&p->tick_regs, regs);
 }
 
 static __always_inline
@@ -1522,15 +1522,6 @@ void irq_pipeline_nmi_exit(void)
 	p->status = raw_cpu_read(nmi_saved_status);
 }
 EXPORT_SYMBOL(irq_pipeline_nmi_exit);
-
-bool irq_pipeline_steal_tick(void) /* Preemption disabled. */
-{
-	struct irq_pipeline_data *p;
-
-	p = raw_cpu_ptr(&irq_pipeline);
-
-	return arch_steal_pipelined_tick(&p->tick_regs);
-}
 
 bool __weak irq_cpuidle_control(struct cpuidle_device *dev,
 				struct cpuidle_state *state)
