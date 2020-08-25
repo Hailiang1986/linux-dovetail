@@ -57,8 +57,6 @@ void irq_pipeline_send_remote(unsigned int ipi,
 
 void irq_pipeline_oops(void);
 
-bool irq_pipeline_steal_tick(void);
-
 bool irq_cpuidle_enter(struct cpuidle_device *dev,
 		       struct cpuidle_state *state);
 
