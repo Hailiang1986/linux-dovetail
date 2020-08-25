@@ -69,13 +69,10 @@ static inline notrace void arch_local_irq_restore(unsigned long flags)
 }
 
 static inline
-void arch_save_timer_regs(struct pt_regs *dst,
-			  struct pt_regs *src, bool head_context)
+void arch_save_timer_regs(struct pt_regs *dst, struct pt_regs *src)
 {
 	dst->pstate = src->pstate;
 	dst->pc = src->pc;
-	if (head_context)
-		dst->pstate |= IRQMASK_I_BIT;
 }
 
 static inline bool arch_steal_pipelined_tick(struct pt_regs *regs)
