@@ -69,8 +69,7 @@ static inline notrace void arch_local_irq_restore(unsigned long flags)
 #endif /* !CONFIG_PARAVIRT_XXL */
 
 static inline
-void arch_save_timer_regs(struct pt_regs *dst,
-			  struct pt_regs *src, bool oob_context)
+void arch_save_timer_regs(struct pt_regs *dst, struct pt_regs *src)
 {
 	dst->flags = src->flags;
 	dst->cs = src->cs;
@@ -78,8 +77,6 @@ void arch_save_timer_regs(struct pt_regs *dst,
 	dst->bp = src->bp;
 	dst->ss = src->ss;
 	dst->sp = src->sp;
-	if (oob_context)
-		dst->flags &= ~X86_EFLAGS_IF;
 }
 
 static inline bool arch_steal_pipelined_tick(struct pt_regs *regs)
