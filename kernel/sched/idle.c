@@ -98,8 +98,9 @@ void __cpuidle default_idle_call(void)
 			stop_critical_timings();
 			arch_cpu_idle();
 			start_critical_timings();
-		} else
+		} else {
 			local_irq_enable_full();
+		}
 	}
 }
 
