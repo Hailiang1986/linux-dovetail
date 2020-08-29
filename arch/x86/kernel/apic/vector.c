@@ -812,9 +812,43 @@ static int apic_retrigger_irq(struct irq_data *irqd)
 	return 1;
 }
 
-void apic_ack_irq(struct irq_data *irqd)
+#if defined(CONFIG_IRQ_PIPELINE) &&	\
+	defined(CONFIG_GENERIC_PENDING_IRQ)
+
+static void apic_deferred_irq_move(struct irq_work *work)
+{
+	struct irq_data *irqd;
+	struct irq_desc *desc;
+	unsigned long flags;
+
+	irqd = container_of(work, struct irq_data, move_work);
+	desc = irq_data_to_desc(irqd);
+	raw_spin_lock_irqsave(&desc->lock, flags);
+	__irq_move_irq(irqd);
+	raw_spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+static inline void apic_move_irq(struct irq_data *irqd)
+{
+	if (irqd_is_setaffinity_pending(irqd) &&
+		!irqd_is_setaffinity_blocked(irqd)) {
+		init_irq_work(&irqd->move_work, apic_deferred_irq_move);
+		irq_work_queue(&irqd->move_work);
+	}
+}
+
+#else
+
+static inline void apic_move_irq(struct irq_data *irqd)
 {
 	irq_move_irq(irqd);
+}
+
+#endif
+
+void apic_ack_irq(struct irq_data *irqd)
+{
+	apic_move_irq(irqd);
 	__ack_APIC_irq();
 }
 

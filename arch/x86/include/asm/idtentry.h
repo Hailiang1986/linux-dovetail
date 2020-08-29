@@ -199,8 +199,6 @@ handle_irq_pipelined_prepare(struct pt_regs *regs);
 int handle_irq_pipelined_finish(struct irq_stage_data *prevd,
 				struct pt_regs *regs);;
 
-void arch_handle_irq(struct pt_regs *regs, u8 vector);
-
 void arch_pipeline_entry(struct pt_regs *regs, u8 vector);
 
 #define DECLARE_IDTENTRY_SYSVEC_PIPELINED(vector, func)			\

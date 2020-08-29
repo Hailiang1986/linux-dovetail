@@ -197,14 +197,14 @@ void arch_do_IRQ_pipelined(struct irq_desc *desc)
 	set_irq_regs(old_regs);
 }
 
-void arch_handle_irq(struct pt_regs *regs, u8 vector)
+void arch_handle_irq(struct pt_regs *regs, u8 vector, bool irq_movable)
 {
 	struct irq_desc *desc;
 	unsigned int irq;
 
-	if (vector >= FIRST_SYSTEM_VECTOR)
+	if (vector >= FIRST_SYSTEM_VECTOR) {
 		irq = apicm_vector_irq(vector);
-	else {
+	} else {
 		desc = __this_cpu_read(vector_irq[vector]);
 		if (unlikely(IS_ERR_OR_NULL(desc))) {
 			if (desc == VECTOR_UNUSED) {
@@ -215,6 +215,14 @@ void arch_handle_irq(struct pt_regs *regs, u8 vector)
 				__this_cpu_write(vector_irq[vector], VECTOR_UNUSED);
 			}
 			return;
+		}
+		if (irqd_is_setaffinity_pending(&desc->irq_data)) {
+			raw_spin_lock(&desc->lock);
+			if (irq_movable)
+				irqd_clr_move_blocked(&desc->irq_data);
+			else
+				irqd_set_move_blocked(&desc->irq_data);
+			raw_spin_unlock(&desc->lock);
 		}
 		irq = irq_desc_get_irq(desc);
 	}
@@ -253,7 +261,7 @@ noinstr void arch_pipeline_entry(struct pt_regs *regs, u8 vector)
 	if (running_oob()) {
 		instrumentation_begin();
 		prevd = handle_irq_pipelined_prepare(regs);
-		arch_handle_irq(regs, vector);
+		arch_handle_irq(regs, vector, false);
 		handle_irq_pipelined_finish(prevd, regs);
 		rcu_exit = kernel_exit_check_downgrade(regs);
 		instrumentation_end();
@@ -267,7 +275,7 @@ noinstr void arch_pipeline_entry(struct pt_regs *regs, u8 vector)
 	if (unlikely(irqs_disabled())) {
 		instrumentation_begin();
 		prevd = handle_irq_pipelined_prepare(regs);
-		arch_handle_irq(regs, vector);
+		arch_handle_irq(regs, vector, false);
 		handle_irq_pipelined_finish(prevd, regs);
 		instrumentation_end();
 		return;
@@ -278,7 +286,7 @@ noinstr void arch_pipeline_entry(struct pt_regs *regs, u8 vector)
 	instrumentation_begin();
 	/* Prep for handling, switching oob. */
 	prevd = handle_irq_pipelined_prepare(regs);
-	arch_handle_irq(regs, vector);
+	arch_handle_irq(regs, vector, true);
 	kvm_set_cpu_l1tf_flush_l1d();
 	/* idtentry_enter_cond_rcu() stalled the in-band stage. */
 	trace_hardirqs_on();
