@@ -16,6 +16,7 @@
 #include <linux/irqhandler.h>
 #include <linux/irqreturn.h>
 #include <linux/irqnr.h>
+#include <linux/irq_work.h>
 #include <linux/topology.h>
 #include <linux/io.h>
 #include <linux/slab.h>
@@ -176,6 +177,7 @@ struct irq_common_data {
  *			irq_domain
  * @chip_data:		platform-specific per-chip private data for the chip
  *			methods, to allow shared chip implementations
+ * @move_work:		irq_work for setaffinity deferral when pipelining irqs
  */
 struct irq_data {
 	u32			mask;
@@ -186,6 +188,9 @@ struct irq_data {
 	struct irq_domain	*domain;
 #ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
 	struct irq_data		*parent_data;
+#endif
+#if defined(CONFIG_IRQ_PIPELINE) && defined(CONFIG_GENERIC_PENDING_IRQ)
+	struct irq_work		move_work;
 #endif
 	void			*chip_data;
 };
@@ -220,6 +225,7 @@ struct irq_data {
  *				  required
  * IRQD_HANDLE_ENFORCE_IRQCTX	- Enforce that handle_irq_*() is only invoked
  *				  from actual interrupt context.
+ * IRQD_SETAFFINITY_BLOCKED	- Pending affinity setting on hold (IRQ_PIPELINE)
  */
 enum {
 	IRQD_TRIGGER_MASK		= 0xf,
@@ -244,6 +250,7 @@ enum {
 	IRQD_CAN_RESERVE		= (1 << 26),
 	IRQD_MSI_NOMASK_QUIRK		= (1 << 27),
 	IRQD_HANDLE_ENFORCE_IRQCTX	= (1 << 28),
+	IRQD_SETAFFINITY_BLOCKED	= (1 << 29),
 };
 
 #define __irqd_to_state(d) ACCESS_PRIVATE((d)->common, state_use_accessors)
@@ -251,6 +258,21 @@ enum {
 static inline bool irqd_is_setaffinity_pending(struct irq_data *d)
 {
 	return __irqd_to_state(d) & IRQD_SETAFFINITY_PENDING;
+}
+
+static inline void irqd_set_move_blocked(struct irq_data *d)
+{
+	__irqd_to_state(d) |= IRQD_SETAFFINITY_BLOCKED;
+}
+
+static inline void irqd_clr_move_blocked(struct irq_data *d)
+{
+	__irqd_to_state(d) &= ~IRQD_SETAFFINITY_BLOCKED;
+}
+
+static inline bool irqd_is_setaffinity_blocked(struct irq_data *d)
+{
+	return irqs_pipelined() && __irqd_to_state(d) & IRQD_SETAFFINITY_BLOCKED;
 }
 
 static inline bool irqd_is_per_cpu(struct irq_data *d)
