@@ -206,14 +206,14 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	ktime_t time_start, time_end;
 
 	/*
-	 * A co-kernel running on the oob stage of the IRQ pipeline
-	 * may deny switching to a deeper C-state. If so, call the
-	 * default idle routine instead. If the co-kernel cannot bear
-	 * with the latency induced by the default idling operation,
-	 * then CPUIDLE is not usable and should be disabled at build
-	 * time. The inband stage is stalled on entry,
-	 * irq_cpuidle_enter() additionally returns with hard irqs
-	 * off.
+	 * A companion core running on the oob stage of the IRQ
+	 * pipeline may deny switching to a deeper C-state. If so,
+	 * call the default idle routine instead. If the core cannot
+	 * bear with the latency induced by the default idling
+	 * operation, then CPUIDLE is not usable and should be
+	 * disabled at build time. The inband stage is stalled on
+	 * entry to irq_cpuidle_enter(), unstalled on exit with hard
+	 * irqs off.
 	 */
 	if (!irq_cpuidle_enter(dev, target_state)) {
 		default_idle_call();
