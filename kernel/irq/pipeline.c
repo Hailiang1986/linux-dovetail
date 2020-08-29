@@ -1548,12 +1548,10 @@ bool __weak irq_cpuidle_control(struct cpuidle_device *dev,
 bool irq_cpuidle_enter(struct cpuidle_device *dev,
 		       struct cpuidle_state *state)
 {
-	struct irq_stage_data *p;
-
 	WARN_ON_ONCE(irq_pipeline_debug() && !irqs_disabled());
 
 	hard_local_irq_disable();
-	p = this_inband_staged();
+	unstall_inband_nocheck();
 
 	/*
 	 * Pending IRQ(s) waiting for delivery to the inband stage, or
@@ -1564,7 +1562,12 @@ bool irq_cpuidle_enter(struct cpuidle_device *dev,
 	 * processor idling code, or leave the CPU idle framework
 	 * without sleeping.
 	 */
-	return !stage_irqs_pending(p) && irq_cpuidle_control(dev, state);
+	if (stage_irqs_pending(this_inband_staged())) {
+		synchronize_pipeline();
+		return false;
+	}
+
+	return irq_cpuidle_control(dev, state);
 }
 
 static unsigned int inband_work_sirq;
