@@ -1714,14 +1714,56 @@ static bool io_apic_level_ack_pending(struct mp_chip_data *data)
 	return false;
 }
 
+static inline void do_prepare_move(struct irq_data *data)
+{
+	if (!irqd_irq_masked(data))
+		mask_ioapic_irq(data);
+}
+
+#ifdef CONFIG_IRQ_PIPELINE
+
+static inline void ioapic_finish_move(struct irq_data *data, bool moveit);
+
+static void ioapic_deferred_irq_move(struct irq_work *work)
+{
+	struct irq_data *data;
+	struct irq_desc *desc;
+	unsigned long flags;
+
+	data = container_of(work, struct irq_data, move_work);
+	desc = irq_data_to_desc(data);
+	raw_spin_lock_irqsave(&desc->lock, flags);
+	do_prepare_move(data);
+	ioapic_finish_move(data, true);
+	raw_spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+static inline bool __ioapic_prepare_move(struct irq_data *data)
+{
+	init_irq_work(&data->move_work, ioapic_deferred_irq_move);
+	irq_work_queue(&data->move_work);
+
+	return false;	/* Postpone ioapic_finish_move(). */
+}
+
+#else  /* !CONFIG_IRQ_PIPELINE */
+
+static inline bool __ioapic_prepare_move(struct irq_data *data)
+{
+	do_prepare_move(data);
+
+	return true;
+}
+
+#endif
+
 static inline bool ioapic_prepare_move(struct irq_data *data)
 {
 	/* If we are moving the IRQ we need to mask it */
-	if (unlikely(irqd_is_setaffinity_pending(data))) {
-		if (!irqd_irq_masked(data))
-			mask_ioapic_irq(data);
-		return true;
-	}
+	if (irqd_is_setaffinity_pending(data) &&
+		!irqd_is_setaffinity_blocked(data))
+		return __ioapic_prepare_move(data);
+
 	return false;
 }
 
