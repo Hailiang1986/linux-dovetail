@@ -210,9 +210,10 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	 * call the default idle routine instead. If the core cannot
 	 * bear with the latency induced by the default idling
 	 * operation, then CPUIDLE is not usable and should be
-	 * disabled at build time. The inband stage is stalled on
-	 * entry to irq_cpuidle_enter(), unstalled on exit with hard
-	 * irqs off.
+	 * disabled at build time. The in-band stage is currently
+	 * stalled, hard irqs are on. irq_cpuidle_enter() leaves us
+	 * stalled but returns with hard irqs off so that no event may
+	 * sneak in until we actually go idle.
 	 */
 	if (!irq_cpuidle_enter(dev, target_state)) {
 		default_idle_call();
