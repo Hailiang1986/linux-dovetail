@@ -695,15 +695,13 @@ static __cpuidle void mwait_idle(void)
 		}
 
 		__monitor((void *)&current_thread_info()->flags, 0, 0);
-		if (!need_resched()) {
+		if (!need_resched())
 			__sti_mwait(0, 0);
-			if (irqs_pipelined())
-				local_irq_enable();
-		} else
-			local_irq_enable_full();
+		else
+			hard_local_irq_enable();
 		trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, smp_processor_id());
 	} else {
-		local_irq_enable_full();
+		hard_local_irq_enable();
 	}
 	__current_clr_polling();
 }
