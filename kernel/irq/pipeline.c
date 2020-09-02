@@ -1535,25 +1535,34 @@ bool __weak irq_cpuidle_control(struct cpuidle_device *dev,
 	return true;
 }
 
+/**
+ *	irq_cpuidle_enter - Prepare for entering the next idle state
+ *	@dev: CPUIDLE device
+ *	@state: CPUIDLE state to be entered
+ *
+ *	Flush the in-band interrupt log before the caller idles, so
+ *	that no event lingers before we actually wait for the next
+ *	IRQ, in which case we ask the caller to abort the idling
+ *	process altogether. The companion core is also given the
+ *	opportunity to block the idling process by having
+ *	irq_cpuidle_control() return @false.
+ *
+ *	Returns @true if caller may proceed with idling, @false
+ *	otherwise. The in-band log is guaranteed empty on return, hard
+ *	irqs left off so that no event might sneak in until the caller
+ *	actually idles.
+ */
 bool irq_cpuidle_enter(struct cpuidle_device *dev,
 		       struct cpuidle_state *state)
 {
 	WARN_ON_ONCE(irq_pipeline_debug() && !irqs_disabled());
 
 	hard_local_irq_disable();
-	unstall_inband_nocheck();
 
-	/*
-	 * Pending IRQ(s) waiting for delivery to the inband stage, or
-	 * the arbitrary decision of a co-kernel may deny the
-	 * transition to a deeper C-state. Note that we return from
-	 * this call with hard irqs off, so that we won't allow any
-	 * interrupt to sneak into the IRQ log until we reach the
-	 * processor idling code, or leave the CPU idle framework
-	 * without sleeping.
-	 */
 	if (stage_irqs_pending(this_inband_staged())) {
+		unstall_inband_nocheck();
 		synchronize_pipeline();
+		stall_inband_nocheck();
 		return false;
 	}
 
