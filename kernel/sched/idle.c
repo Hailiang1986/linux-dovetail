@@ -77,7 +77,7 @@ void __weak arch_cpu_idle_dead(void) { }
 void __weak arch_cpu_idle(void)
 {
 	cpu_idle_force_poll = 1;
-	local_irq_enable_full();
+	hard_local_irq_enable();
 }
 
 /**
@@ -86,8 +86,8 @@ void __weak arch_cpu_idle(void)
  * To use when the cpuidle framework cannot be used.
  *
  * When interrupts are pipelined, this call is entered with hard irqs
- * on and the in-band stage stalled, returns with hard irqs on, and
- * the in-band stage unstalled.
+ * on and the in-band stage is stalled. Returns with hard irqs on,
+ * in-band stage stalled.
  */
 void __cpuidle default_idle_call(void)
 {
@@ -97,6 +97,7 @@ void __cpuidle default_idle_call(void)
 		if (irq_cpuidle_enter(NULL, NULL)) {
 			stop_critical_timings();
 			arch_cpu_idle();
+			inband_irq_enable();
 			start_critical_timings();
 		} else {
 			local_irq_enable_full();
