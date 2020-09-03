@@ -90,18 +90,18 @@ static inline int check_hard_irqs_disabled(void) { return 0; }
 
 extern bool irq_pipeline_oopsing;
 
-static inline bool irqs_pipelined(void)
+static __always_inline bool irqs_pipelined(void)
 {
 	return IS_ENABLED(CONFIG_IRQ_PIPELINE);
 }
 
-static inline bool irq_pipeline_debug(void)
+static __always_inline bool irq_pipeline_debug(void)
 {
 	return IS_ENABLED(CONFIG_DEBUG_IRQ_PIPELINE) &&
 		!irq_pipeline_oopsing;
 }
 
-static inline bool irq_pipeline_debug_locking(void)
+static __always_inline bool irq_pipeline_debug_locking(void)
 {
 	return IS_ENABLED(CONFIG_DEBUG_HARD_LOCKS);
 }

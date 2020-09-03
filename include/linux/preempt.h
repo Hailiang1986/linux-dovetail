@@ -370,12 +370,12 @@ static __always_inline void migrate_enable(void)
 
 #ifdef CONFIG_IRQ_PIPELINE
 
-static inline bool running_inband(void)
+static __always_inline bool running_inband(void)
 {
 	return stage_level() == 0;
 }
 
-static inline bool running_oob(void)
+static __always_inline bool running_oob(void)
 {
 	return !running_inband();
 }
@@ -385,12 +385,12 @@ void hard_preempt_enable(unsigned long flags);
 
 #else
 
-static inline bool running_inband(void)
+static __always_inline bool running_inband(void)
 {
 	return true;
 }
 
-static inline bool running_oob(void)
+static __always_inline bool running_oob(void)
 {
 	return false;
 }
