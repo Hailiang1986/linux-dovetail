@@ -304,12 +304,12 @@ void replace_inband_fd(unsigned int fd, struct file *file,
 
 #endif	/* !CONFIG_DOVETAIL */
 
-static inline bool dovetailing(void)
+static __always_inline bool dovetailing(void)
 {
 	return IS_ENABLED(CONFIG_DOVETAIL);
 }
 
-static inline bool dovetail_debug(void)
+static __always_inline bool dovetail_debug(void)
 {
 	return IS_ENABLED(CONFIG_DEBUG_DOVETAIL);
 }
