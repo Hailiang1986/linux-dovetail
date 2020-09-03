@@ -49,8 +49,8 @@ int pipeline_syscall(unsigned int nr, struct pt_regs *regs);
 void __oob_trap_notify(unsigned int exception,
 		       struct pt_regs *regs);
 
-static inline void oob_trap_notify(unsigned int exception,
-				struct pt_regs *regs)
+static __always_inline void oob_trap_notify(unsigned int exception,
+					struct pt_regs *regs)
 {
 	if (running_oob())
 		__oob_trap_notify(exception, regs);
@@ -59,8 +59,8 @@ static inline void oob_trap_notify(unsigned int exception,
 void __oob_trap_unwind(unsigned int exception,
 		struct pt_regs *regs);
 
-static inline void oob_trap_unwind(unsigned int exception,
-				struct pt_regs *regs)
+static __always_inline void oob_trap_unwind(unsigned int exception,
+					struct pt_regs *regs)
 {
 	if (test_thread_local_flags(_TLF_OOBTRAP))
 		__oob_trap_unwind(exception, regs);
@@ -288,12 +288,12 @@ void replace_inband_fd(unsigned int fd, struct file *file,
 
 #endif	/* !CONFIG_DOVETAIL */
 
-static inline bool dovetailing(void)
+static __always_inline bool dovetailing(void)
 {
 	return IS_ENABLED(CONFIG_DOVETAIL);
 }
 
-static inline bool dovetail_debug(void)
+static __always_inline bool dovetail_debug(void)
 {
 	return IS_ENABLED(CONFIG_DEBUG_DOVETAIL);
 }
