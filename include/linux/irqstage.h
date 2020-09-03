@@ -65,70 +65,70 @@ DECLARE_PER_CPU(struct irq_pipeline_data, irq_pipeline);
 #define INBAND_STALL_BIT  0
 #define OOB_STALL_BIT     1
 
-static inline void init_task_stall_bits(struct task_struct *p)
+static __always_inline void init_task_stall_bits(struct task_struct *p)
 {
 	__set_bit(INBAND_STALL_BIT, &p->stall_bits);
 	__clear_bit(OOB_STALL_BIT, &p->stall_bits);
 }
 
-static inline void stall_inband_nocheck(void)
+static __always_inline void stall_inband_nocheck(void)
 {
 	__set_bit(INBAND_STALL_BIT, &current->stall_bits);
 	barrier();
 }
 
-static inline void stall_inband(void)
+static __always_inline void stall_inband(void)
 {
 	WARN_ON_ONCE(irq_pipeline_debug() && running_oob());
 	stall_inband_nocheck();
 }
 
-static inline void unstall_inband_nocheck(void)
+static __always_inline void unstall_inband_nocheck(void)
 {
 	barrier();
 	__clear_bit(INBAND_STALL_BIT, &current->stall_bits);
 }
 
-static inline void unstall_inband(void)
+static __always_inline void unstall_inband(void)
 {
 	WARN_ON_ONCE(irq_pipeline_debug() && running_oob());
 	unstall_inband_nocheck();
 }
 
-static inline int test_and_stall_inband_nocheck(void)
+static __always_inline int test_and_stall_inband_nocheck(void)
 {
 	return __test_and_set_bit(INBAND_STALL_BIT, &current->stall_bits);
 }
 
-static inline int test_and_stall_inband(void)
+static __always_inline int test_and_stall_inband(void)
 {
 	WARN_ON_ONCE(irq_pipeline_debug() && running_oob());
 	return test_and_stall_inband_nocheck();
 }
 
-static inline int test_inband_stall(void)
+static __always_inline int test_inband_stall(void)
 {
 	return test_bit(INBAND_STALL_BIT, &current->stall_bits);
 }
 
-static inline void stall_oob(void)
+static __always_inline void stall_oob(void)
 {
 	__set_bit(OOB_STALL_BIT, &current->stall_bits);
 	barrier();
 }
 
-static inline void unstall_oob(void)
+static __always_inline void unstall_oob(void)
 {
 	barrier();
 	__clear_bit(OOB_STALL_BIT, &current->stall_bits);
 }
 
-static inline int test_and_stall_oob(void)
+static __always_inline int test_and_stall_oob(void)
 {
 	return __test_and_set_bit(OOB_STALL_BIT, &current->stall_bits);
 }
 
-static inline int test_oob_stall(void)
+static __always_inline int test_oob_stall(void)
 {
 	return test_bit(OOB_STALL_BIT, &current->stall_bits);
 }
@@ -139,7 +139,7 @@ static inline int test_oob_stall(void)
  * Return the address of @stage's data on the current CPU. IRQs must
  * be hard disabled to prevent CPU migration.
  */
-static inline
+static __always_inline
 struct irq_stage_data *this_staged(struct irq_stage *stage)
 {
 	return &raw_cpu_ptr(irq_pipeline.stages)[stage->index];
@@ -155,7 +155,7 @@ struct irq_stage_data *this_staged(struct irq_stage *stage)
  * CPU. Additionally, if the target stage is known at build time,
  * consider using this_{inband, oob}_staged() instead.
  */
-static inline
+static __always_inline
 struct irq_stage_data *percpu_inband_staged(struct irq_stage *stage, int cpu)
 {
 	return &per_cpu(irq_pipeline.stages, cpu)[stage->index];
@@ -169,7 +169,7 @@ struct irq_stage_data *percpu_inband_staged(struct irq_stage *stage, int cpu)
  * This accessor is recommended when the stage we refer to is known at
  * build time to be the inband one.
  */
-static inline struct irq_stage_data *this_inband_staged(void)
+static __always_inline struct irq_stage_data *this_inband_staged(void)
 {
 	return raw_cpu_ptr(&irq_pipeline.stages[0]);
 }
@@ -184,12 +184,12 @@ static inline struct irq_stage_data *this_inband_staged(void)
  * different from the context data of the inband stage, even in
  * absence of registered oob stage.
  */
-static inline struct irq_stage_data *this_oob_staged(void)
+static __always_inline struct irq_stage_data *this_oob_staged(void)
 {
 	return raw_cpu_ptr(&irq_pipeline.stages[1]);
 }
 
-static inline struct irq_stage_data *__current_irq_staged(void)
+static __always_inline struct irq_stage_data *__current_irq_staged(void)
 {
 	return &raw_cpu_ptr(irq_pipeline.stages)[stage_level()];
 }
@@ -200,7 +200,7 @@ static inline struct irq_stage_data *__current_irq_staged(void)
  */
 #define current_irq_staged __current_irq_staged()
 
-static inline
+static __always_inline
 void check_staged_locality(struct irq_stage_data *pd)
 {
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
@@ -220,7 +220,7 @@ void check_staged_locality(struct irq_stage_data *pd)
  * interrupt stage for the current CPU. Don't bypass them, ever.
  * Really.
  */
-static inline
+static __always_inline
 void switch_oob(struct irq_stage_data *pd)
 {
 	check_staged_locality(pd);
@@ -228,7 +228,7 @@ void switch_oob(struct irq_stage_data *pd)
 		preempt_count_add(STAGE_OFFSET);
 }
 
-static inline
+static __always_inline
 void switch_inband(struct irq_stage_data *pd)
 {
 	check_staged_locality(pd);
@@ -236,7 +236,7 @@ void switch_inband(struct irq_stage_data *pd)
 		preempt_count_sub(STAGE_OFFSET);
 }
 
-static inline
+static __always_inline
 void set_current_irq_staged(struct irq_stage_data *pd)
 {
 	if (pd->stage == &inband_stage)
@@ -245,7 +245,7 @@ void set_current_irq_staged(struct irq_stage_data *pd)
 		switch_oob(pd);
 }
 
-static inline struct irq_stage *__current_irq_stage(void)
+static __always_inline struct irq_stage *__current_irq_stage(void)
 {
 	/*
 	 * We don't have to hard disable irqs while accessing the
@@ -257,7 +257,7 @@ static inline struct irq_stage *__current_irq_stage(void)
 
 #define current_irq_stage	__current_irq_stage()
 
-static inline bool oob_stage_present(void)
+static __always_inline bool oob_stage_present(void)
 {
 	return oob_stage.index != 0;
 }
@@ -267,7 +267,7 @@ static inline bool oob_stage_present(void)
  * (i.e. logged) on the current CPU for the given stage. Hard IRQs
  * must be disabled.
  */
-static inline int stage_irqs_pending(struct irq_stage_data *pd)
+static __always_inline int stage_irqs_pending(struct irq_stage_data *pd)
 {
 	return pd->log.index_0 != 0;
 }
@@ -279,29 +279,29 @@ void sync_irq_stage(struct irq_stage *top);
 void irq_post_stage(struct irq_stage *stage,
 		    unsigned int irq);
 
-static inline void irq_post_oob(unsigned int irq)
+static __always_inline void irq_post_oob(unsigned int irq)
 {
 	irq_post_stage(&oob_stage, irq);
 }
 
-static inline void irq_post_inband(unsigned int irq)
+static __always_inline void irq_post_inband(unsigned int irq)
 {
 	irq_post_stage(&inband_stage, irq);
 }
 
-static inline void oob_irq_disable(void)
+static __always_inline void oob_irq_disable(void)
 {
 	hard_local_irq_disable();
 	stall_oob();
 }
 
-static inline unsigned long oob_irq_save(void)
+static __always_inline unsigned long oob_irq_save(void)
 {
 	hard_local_irq_disable();
 	return test_and_stall_oob();
 }
 
-static inline int oob_irqs_disabled(void)
+static __always_inline int oob_irqs_disabled(void)
 {
 	return test_oob_stall();
 }
@@ -310,7 +310,7 @@ void oob_irq_enable(void);
 
 void __oob_irq_restore(unsigned long x);
 
-static inline void oob_irq_restore(unsigned long x)
+static __always_inline void oob_irq_restore(unsigned long x)
 {
 	if ((x ^ test_oob_stall()) & 1)
 		__oob_irq_restore(x);
@@ -341,31 +341,31 @@ void disable_oob_stage(void);
 
 void call_is_nop_without_pipelining(void);
 
-static inline void stall_inband(void) { }
+static __always_inline void stall_inband(void) { }
 
-static inline void unstall_inband(void) { }
+static __always_inline void unstall_inband(void) { }
 
-static inline int test_and_stall_inband(void)
+static __always_inline int test_and_stall_inband(void)
 {
 	return false;
 }
 
-static inline int test_inband_stall(void)
+static __always_inline int test_inband_stall(void)
 {
 	return false;
 }
 
-static inline bool oob_stage_present(void)
+static __always_inline bool oob_stage_present(void)
 {
 	return false;
 }
 
-static inline bool stage_disabled(void)
+static __always_inline bool stage_disabled(void)
 {
 	return irqs_disabled();
 }
 
-static inline void irq_post_inband(unsigned int irq)
+static __always_inline void irq_post_inband(unsigned int irq)
 {
 	call_is_nop_without_pipelining();
 }
@@ -382,13 +382,13 @@ static inline void irq_post_inband(unsigned int irq)
 
 #define stage_save_flags(__flags)	raw_local_save_flags(__flags)
 
-static inline void stall_inband_nocheck(void)
+static __always_inline void stall_inband_nocheck(void)
 { }
 
-static inline void unstall_inband_nocheck(void)
+static __always_inline void unstall_inband_nocheck(void)
 { }
 
-static inline int test_and_stall_inband_nocheck(void)
+static __always_inline int test_and_stall_inband_nocheck(void)
 {
 	return irqs_disabled();
 }

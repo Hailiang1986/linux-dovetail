@@ -88,7 +88,7 @@ module_param(lock_stat, int, 0644);
 static arch_spinlock_t __lock = (arch_spinlock_t)__ARCH_SPIN_LOCK_UNLOCKED;
 static struct task_struct *__owner;
 
-static inline bool lockdep_stage_disabled(void)
+static __always_inline bool lockdep_stage_disabled(void)
 {
 	return stage_disabled();
 }
@@ -99,17 +99,17 @@ static inline bool lockdep_stage_disabled(void)
  * when traversing the lockdep code for hard and mutable locks (at the
  * expense of massive latency overhead though).
  */
-static inline unsigned long lockdep_stage_test_and_disable(int *irqsoff)
+static __always_inline unsigned long lockdep_stage_test_and_disable(int *irqsoff)
 {
 	return test_and_lock_stage(irqsoff);
 }
 
-static inline unsigned long lockdep_stage_disable(void)
+static __always_inline unsigned long lockdep_stage_disable(void)
 {
 	return lockdep_stage_test_and_disable(NULL);
 }
 
-static inline void lockdep_stage_restore(unsigned long flags)
+static __always_inline void lockdep_stage_restore(unsigned long flags)
 {
 	unlock_stage(flags);
 }
