@@ -985,10 +985,8 @@ static int lineevent_create(struct gpio_device *gdev, void __user *ip)
 
 	if (oob_handling_requested(lflags)) {
 		ret = evl_open_file(&le->oob_state.efile, file);
-		if (ret) {
-			fput(file);
-			goto out_put_unused_fd;
-		}
+		if (ret)
+			goto out_put_file;
 	}
 
 	eventreq.fd = fd;
@@ -999,15 +997,17 @@ static int lineevent_create(struct gpio_device *gdev, void __user *ip)
 		 */
 		if (oob_handling_requested(lflags))
 			evl_release_file(&le->oob_state.efile);
-		fput(file);
-		put_unused_fd(fd);
-		return -EFAULT;
+ 
+		ret = -EFAULT;
+		goto out_put_file;
 	}
 
 	fd_install(fd, file);
 
 	return 0;
 
+out_put_file:
+	fput(file);
 out_put_unused_fd:
 	put_unused_fd(fd);
 out_free_le:
