@@ -54,7 +54,7 @@ void __oob_trap_finalize(unsigned int trapnr,
 static inline void oob_trap_notify(unsigned int trapnr,
 				   struct pt_regs *regs)
 {
-	if (running_oob())
+	if (running_oob() && !test_thread_local_flags(_TLF_OOBTRAP))
 		__oob_trap_notify(trapnr, regs);
 }
 
