@@ -257,6 +257,16 @@ static inline bool nmi_uaccess_okay(void)
 	VM_WARN_ON_ONCE(!loaded_mm);
 
 	/*
+	 * There would be no way for the companion core to switch an
+	 * out-of-band task back in-band in order to handle an access
+	 * fault over NMI safely. Tell the caller that uaccess from
+	 * NMI is NOT ok if the preempted task was running
+	 * out-of-band.
+	 */
+	if (running_oob())
+		return false;
+
+	/*
 	 * The condition we want to check is
 	 * current_mm->pgd == __va(read_cr3_pa()).  This may be slow, though,
 	 * if we're running in a VM with shadow paging, and nmi_uaccess_okay()
