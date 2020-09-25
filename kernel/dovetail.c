@@ -225,17 +225,11 @@ void __oob_trap_notify(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
 
-	WARN_ON_ONCE(dovetail_debug() &&
-		test_thread_local_flags(_TLF_OOBTRAP));
-
 	/*
-	 * We send a notification about all traps raised over a
-	 * registered oob stage only.
-	 *
-	 * CAUTION: The out-of-band trap handler expects hard irqs off
-	 * on entry, and might demote the current context to the
-	 * in-band stage, returning with hard irqs on. So we have to
-	 * protect the call accordingly.
+	 * We send a notification about exceptions raised over a
+	 * registered oob stage only. The trap_entry handler expects
+	 * hard irqs off on entry. It may demote the current context
+	 * to the in-band stage, may return with hard irqs on.
 	 */
 	if (dovetail_enabled) {
 		set_thread_local_flags(_TLF_OOBTRAP);
@@ -251,18 +245,15 @@ void __weak handle_oob_trap_exit(unsigned int trapnr, struct pt_regs *regs)
 
 void __oob_trap_finalize(unsigned int exception, struct pt_regs *regs)
 {
-	unsigned long flags;
-
-	if (WARN_ON_ONCE(dovetail_debug() &&
-		!test_thread_local_flags(_TLF_OOBTRAP)))
-		return;
-
-	flags = hard_local_save_flags();
-	hard_local_irq_enable();
+	/*
+	 * The trap_exit handler runs only if trap_entry was called
+	 * for the same trap occurrence. It expects hard irqs off on
+	 * entry, may switch the current context back to the oob
+	 * stage. Must return with hard irqs off.
+	 */
+	hard_local_irq_disable();
 	clear_thread_local_flags(_TLF_OOBTRAP);
 	handle_oob_trap_exit(exception, regs);
-	if (hard_irqs_disabled_flags(flags))
-		hard_local_irq_disable();
 }
 
 void __weak handle_inband_event(enum inband_event_type event, void *data)
