@@ -52,7 +52,7 @@ void __oob_trap_notify(unsigned int exception,
 static __always_inline void oob_trap_notify(unsigned int exception,
 					struct pt_regs *regs)
 {
-	if (running_oob())
+	if (running_oob() && !test_thread_local_flags(_TLF_OOBTRAP))
 		__oob_trap_notify(exception, regs);
 }
 
