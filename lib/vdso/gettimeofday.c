@@ -237,7 +237,7 @@ bool get_hw_counter(const struct vdso_data *vd, u32 *r_seq, u64 *cycles)
 
 	*cycles = __arch_get_hw_counter(vd->clock_mode);
 	if (unlikely(!vdso_cycles_ok(*cycles)))
-		  return -1;
+		  return false;
 
 	return true;
 }
