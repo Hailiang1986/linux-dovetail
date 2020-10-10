@@ -248,6 +248,7 @@ static const struct exynos_irq_chip exynos_gpio_irq_chip __initconst = {
 		.irq_set_affinity = exynos_irq_set_affinity,
 		.irq_request_resources = exynos_irq_request_resources,
 		.irq_release_resources = exynos_irq_release_resources,
+		.flags = IRQCHIP_PIPELINE_SAFE,
 	},
 	.eint_con = EXYNOS_GPIO_ECON_OFFSET,
 	.eint_mask = EXYNOS_GPIO_EMASK_OFFSET,
@@ -323,7 +324,7 @@ __init int exynos_eint_gpio_init(struct samsung_pinctrl_drv_data *d)
 	}
 
 	ret = devm_request_irq(dev, d->irq, exynos_eint_gpio_irq,
-					0, dev_name(dev), d);
+					IRQF_OOB, dev_name(dev), d);
 	if (ret) {
 		dev_err(dev, "irq request failed\n");
 		return -ENXIO;
@@ -341,6 +342,7 @@ __init int exynos_eint_gpio_init(struct samsung_pinctrl_drv_data *d)
 			goto err_domains;
 		}
 		bank->irq_chip->chip.name = bank->name;
+		bank->irq_chip->chip.flags |= IRQCHIP_PIPELINE_SAFE;
 
 		bank->irq_domain = irq_domain_create_linear(bank->fwnode,
 				bank->nr_pins, &exynos_eint_irqd_ops, bank);
@@ -445,6 +447,7 @@ static const struct exynos_irq_chip s5pv210_wkup_irq_chip __initconst = {
 		.irq_set_wake = exynos_wkup_irq_set_wake,
 		.irq_request_resources = exynos_irq_request_resources,
 		.irq_release_resources = exynos_irq_release_resources,
+		.flags = IRQCHIP_PIPELINE_SAFE,
 	},
 	.eint_con = EXYNOS_WKUP_ECON_OFFSET,
 	.eint_mask = EXYNOS_WKUP_EMASK_OFFSET,
@@ -465,6 +468,7 @@ static const struct exynos_irq_chip exynos4210_wkup_irq_chip __initconst = {
 		.irq_set_wake = exynos_wkup_irq_set_wake,
 		.irq_request_resources = exynos_irq_request_resources,
 		.irq_release_resources = exynos_irq_release_resources,
+		.flags = IRQCHIP_PIPELINE_SAFE,
 	},
 	.eint_con = EXYNOS_WKUP_ECON_OFFSET,
 	.eint_mask = EXYNOS_WKUP_EMASK_OFFSET,
@@ -484,6 +488,7 @@ static const struct exynos_irq_chip exynos7_wkup_irq_chip __initconst = {
 		.irq_set_wake = exynos_wkup_irq_set_wake,
 		.irq_request_resources = exynos_irq_request_resources,
 		.irq_release_resources = exynos_irq_release_resources,
+		.flags = IRQCHIP_PIPELINE_SAFE,
 	},
 	.eint_con = EXYNOS7_WKUP_ECON_OFFSET,
 	.eint_mask = EXYNOS7_WKUP_EMASK_OFFSET,
