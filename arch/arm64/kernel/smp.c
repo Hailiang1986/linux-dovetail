@@ -774,11 +774,11 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	}
 }
 
-void (*__smp_cross_call)(const struct cpumask *, unsigned int);
+void (*___smp_cross_call)(const struct cpumask *, unsigned int);
 
 void __init set_smp_cross_call(void (*fn)(const struct cpumask *, unsigned int))
 {
-	__smp_cross_call = fn;
+	___smp_cross_call = fn;
 }
 
 static const char *ipi_types[NR_IPI] __tracepoint_string = {
@@ -811,7 +811,7 @@ void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 	} else	/* out-of-band IPI (SGI1-2). */
 		sgi = ipinr - NR_IPI + 1;
 
-	__smp_cross_call(target, sgi);
+	___smp_cross_call(target, sgi);
 }
 
 static inline
@@ -841,7 +841,7 @@ void handle_IPI_pipelined(int sgi, struct pt_regs *regs)
 static inline
 void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 {
-	__smp_cross_call(target, ipinr);
+	___smp_cross_call(target, ipinr);
 }
 
 static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
@@ -899,7 +899,7 @@ void arch_send_wakeup_ipi_mask(const struct cpumask *mask)
 #ifdef CONFIG_IRQ_WORK
 void arch_irq_work_raise(void)
 {
-	if (__smp_cross_call)
+	if (___smp_cross_call)
 		smp_cross_call(cpumask_of(smp_processor_id()), IPI_IRQ_WORK);
 }
 #endif
