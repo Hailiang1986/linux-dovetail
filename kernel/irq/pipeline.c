@@ -954,6 +954,14 @@ static void handle_unexpected_irq(struct irq_desc *desc, irqreturn_t ret)
 	}
 }
 
+static inline void incr_irq_kstat(struct irq_desc *desc)
+{
+	if (irq_settings_is_per_cpu_devid(desc))
+		__kstat_incr_irqs_this_cpu(desc);
+	else
+		kstat_incr_irqs_this_cpu(desc);
+}
+
 /*
  * do_oob_irq() - Handles interrupts over the oob stage. Hard irqs
  * off.
@@ -990,6 +998,8 @@ static void do_oob_irq(struct irq_desc *desc)
 		irqd_clear(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 	}
 done:
+	incr_irq_kstat(desc);
+
 	if (likely(ret & IRQ_HANDLED)) {
 		desc->irqs_unhandled = 0;
 		return;
@@ -1009,14 +1019,6 @@ void do_inband_irq(struct irq_desc *desc)
 {
 	arch_do_IRQ_pipelined(desc);
 	WARN_ON_ONCE(irq_pipeline_debug() && !irqs_disabled());
-}
-
-static inline void incr_irq_kstat(struct irq_desc *desc)
-{
-	if (irq_settings_is_per_cpu_devid(desc))
-		__kstat_incr_irqs_this_cpu(desc);
-	else
-		kstat_incr_irqs_this_cpu(desc);
 }
 
 static inline bool is_active_edge_event(struct irq_desc *desc)
@@ -1080,8 +1082,9 @@ bool handle_oob_irq(struct irq_desc *desc) /* hardirqs off, oob */
 			}
 			do_oob_irq(desc);
 		} while (is_active_edge_event(desc));
-	} else
+	} else {
 		do_oob_irq(desc);
+	}
 
 	clear_stage_bit(STAGE_STALL_BIT, oobd);
 
@@ -1211,7 +1214,6 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	preempt_count_add(PIPELINE_OFFSET);
 	generic_handle_irq_desc(desc);
 	preempt_count_sub(PIPELINE_OFFSET);
-	incr_irq_kstat(desc);
 out:
 	set_irq_regs(old_regs);
 	trace_irq_pipeline_exit(irq);
@@ -1292,7 +1294,6 @@ int irq_inject_pipeline(unsigned int irq)
 		irq_enter_pipeline();
 		handle_oob_irq(desc);
 		irq_exit_pipeline();
-		incr_irq_kstat(desc);
 		restore_stage_on_irq(prevd);
 		synchronize_pipeline_on_irq();
 	}
@@ -1352,7 +1353,6 @@ respin:
 			hard_local_irq_disable();
 		} else {
 			do_oob_irq(desc);
-			incr_irq_kstat(desc);
 		}
 
 		/*
