@@ -13,6 +13,7 @@
 #include <linux/atomic.h>
 #include <linux/kexec.h>
 #include <linux/utsname.h>
+#include <linux/hardirq.h>
 
 static char dump_stack_arch_desc_str[128];
 
@@ -102,7 +103,7 @@ static unsigned long disable_local_irqs(void)
 	 * stage, so that latency won't skyrocket as a result of
 	 * dumping the stack backtrace.
 	 */
-	if (running_inband())
+	if (running_inband() && !on_pipeline_entry())
 		local_irq_save(flags);
 
 	return flags;
@@ -110,7 +111,7 @@ static unsigned long disable_local_irqs(void)
 
 static void restore_local_irqs(unsigned long flags)
 {
-	if (running_inband())
+	if (running_inband() && !on_pipeline_entry())
 		local_irq_restore(flags);
 }
 
