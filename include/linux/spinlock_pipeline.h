@@ -352,4 +352,10 @@ int mutable_spin_is_contended(struct raw_spinlock *rlock)
 	return hard_spin_is_contended(rlock);
 }
 
+#ifdef CONFIG_DEBUG_IRQ_PIPELINE
+void check_spinlock_context(void);
+#else
+static inline void check_spinlock_context(void) { }
+#endif
+
 #endif /* __LINUX_SPINLOCK_PIPELINE_H */
