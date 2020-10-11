@@ -1661,6 +1661,13 @@ notrace void check_inband_stage(void)
 }
 EXPORT_SYMBOL(check_inband_stage);
 
+void check_spinlock_context(void)
+{
+	WARN_ON_ONCE(in_pipeline() || running_oob());
+
+}
+EXPORT_SYMBOL(check_spinlock_context);
+
 #endif /* CONFIG_DEBUG_IRQ_PIPELINE */
 
 static inline void fixup_percpu_data(void)
