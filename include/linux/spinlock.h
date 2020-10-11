@@ -346,6 +346,8 @@ static inline void do_raw_spin_unlock(raw_spinlock_t *lock) __releases(lock)
 /* Pull the lock types specific to the IRQ pipeline. */
 #ifdef CONFIG_IRQ_PIPELINE
 #include <linux/spinlock_pipeline.h>
+#else
+static inline void check_spinlock_context(void) { }
 #endif
 
 /*
@@ -354,6 +356,7 @@ static inline void do_raw_spin_unlock(raw_spinlock_t *lock) __releases(lock)
 
 static __always_inline raw_spinlock_t *spinlock_check(spinlock_t *lock)
 {
+	check_spinlock_context();
 	return &lock->rlock;
 }
 
