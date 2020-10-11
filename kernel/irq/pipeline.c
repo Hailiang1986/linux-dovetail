@@ -283,7 +283,7 @@ static void __inband_irq_enable(void)
 	trace_hardirqs_on();
 
 	p = this_inband_staged();
-	if (unlikely(stage_irqs_pending(p))) {
+	if (unlikely(stage_irqs_pending(p) && !in_pipeline())) {
 		sync_current_irq_stage();
 		hard_local_irq_restore(flags);
 		preempt_check_resched();
