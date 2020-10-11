@@ -509,12 +509,12 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	}
 }
 
-static void (*__smp_cross_call)(const struct cpumask *, unsigned int);
+static void (*___smp_cross_call)(const struct cpumask *, unsigned int);
 
 void __init set_smp_cross_call(void (*fn)(const struct cpumask *, unsigned int))
 {
-	if (!__smp_cross_call)
-		__smp_cross_call = fn;
+	if (!___smp_cross_call)
+		___smp_cross_call = fn;
 }
 
 static const char *ipi_types[NR_IPI] __tracepoint_string = {
@@ -547,7 +547,7 @@ void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 	} else	/* out-of-band IPI (SGI1-2). */
 		sgi = ipinr - INBAND_NR_IPI + 1;
 
-	__smp_cross_call(target, sgi);
+	___smp_cross_call(target, sgi);
 }
 
 static inline
@@ -577,7 +577,7 @@ void handle_IPI_pipelined(int sgi, struct pt_regs *regs)
 static inline
 void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 {
-	__smp_cross_call(target, ipinr);
+	___smp_cross_call(target, ipinr);
 }
 
 static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
@@ -890,7 +890,7 @@ core_initcall(register_cpufreq_notifier);
 
 static void raise_nmi(cpumask_t *mask)
 {
-	__smp_cross_call(mask, IPI_CPU_BACKTRACE);
+	send_IPI_message(mask, IPI_CPU_BACKTRACE);
 }
 
 void arch_trigger_cpumask_backtrace(const cpumask_t *mask, bool exclude_self)
