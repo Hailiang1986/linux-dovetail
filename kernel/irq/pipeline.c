@@ -581,16 +581,31 @@ void sync_inband_irqs(void)
 	}
 }
 
+static inline bool irq_post_check(struct irq_stage *stage, unsigned int irq)
+{
+	if (irq_pipeline_debug()) {
+		if (WARN_ONCE(!hard_irqs_disabled(),
+				"hard irqs on posting IRQ%u to %s\n",
+				irq, stage->name))
+			return true;
+		if (WARN_ONCE(irq >= IRQ_BITMAP_BITS,
+				"cannot post invalid IRQ%u to %s\n",
+				irq, stage->name))
+			return true;
+	}
+
+	return false;
+}
+
 #if __IRQ_STAGE_MAP_LEVELS == 4
 
-/* Must be called hw IRQs off. */
+/* Must be called hard irqs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 {
 	struct irq_stage_data *p = this_staged(stage);
 	int l0b, l1b, l2b;
 
-	if (WARN_ON_ONCE(irq_pipeline_debug() &&
-			 (!hard_irqs_disabled() || irq >= IRQ_BITMAP_BITS)))
+	if (irq_post_check(stage, irq))
 		return;
 
 	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG * BITS_PER_LONG);
@@ -676,14 +691,13 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 
 #elif __IRQ_STAGE_MAP_LEVELS == 3
 
-/* Must be called hw IRQs off. */
+/* Must be called hard irqs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 {
 	struct irq_stage_data *p = this_staged(stage);
 	int l0b, l1b;
 
-	if (WARN_ON_ONCE(irq_pipeline_debug() &&
-			 (!hard_irqs_disabled() || irq >= IRQ_BITMAP_BITS)))
+	if (irq_post_check(stage, irq))
 		return;
 
 	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG);
@@ -751,14 +765,13 @@ static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
 	__clear_bit(l0b, &p->log.index_0);
 }
 
-/* Must be called hw IRQs off. */
+/* Must be called hard irqs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 {
 	struct irq_stage_data *p = this_staged(stage);
 	int l0b = irq / BITS_PER_LONG;
 
-	if (WARN_ON_ONCE(irq_pipeline_debug() &&
-			 (!hard_irqs_disabled() || irq >= IRQ_BITMAP_BITS)))
+	if (irq_post_check(stage, irq))
 		return;
 
 	__set_bit(irq, p->log.map->flat);
@@ -1307,7 +1320,7 @@ EXPORT_SYMBOL_GPL(irq_inject_pipeline);
  * CAUTION: CPU migration may occur over this routine if running over
  * the inband stage.
  */
-void sync_current_irq_stage(void) /* hw IRQs off */
+void sync_current_irq_stage(void) /* hard irqs off */
 {
 	struct irq_stage_data *p;
 	struct irq_stage *stage;
