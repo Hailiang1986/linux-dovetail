@@ -788,7 +788,7 @@ void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 			set_bit(ipinr, &per_cpu(ipi_messages, cpu));
 		smp_mb();
 		sgi = 0;
-	} else	/* out-of-band IPI (SGI1-3). */
+	} else	/* out-of-band IPI (SGI1-2). */
 		sgi = ipinr - NR_IPI + 1;
 
 	__smp_cross_call(target, sgi);
@@ -800,7 +800,7 @@ void handle_IPI_pipelined(int sgi, struct pt_regs *regs)
 	unsigned int ipinr, irq;
 	unsigned long *pmsg;
 
-	if (sgi) {		/* SGI1-3 */
+	if (sgi) {		/* SGI1-2 */
 		irq = sgi + NR_IPI - 1 + OOB_IPI_BASE;
 		generic_pipeline_irq(irq, regs);
 		return;
