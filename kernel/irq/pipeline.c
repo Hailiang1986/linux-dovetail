@@ -277,7 +277,7 @@ trace_on_debug void __inband_irq_enable(void)
 	p = this_inband_staged();
 	trace_hardirqs_on();
 	clear_stage_bit(STAGE_STALL_BIT, p);
-	if (unlikely(stage_irqs_pending(p))) {
+	if (unlikely(stage_irqs_pending(p) && !in_pipeline())) {
 		sync_current_irq_stage();
 		hard_local_irq_restore(flags);
 		preempt_check_resched();
