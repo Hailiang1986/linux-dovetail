@@ -619,25 +619,6 @@ void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 }
 EXPORT_SYMBOL_GPL(irq_post_stage);
 
-static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
-{
-	int l0b, l1b, l2b;
-
-	__clear_bit(irq, p->log.map->flat);
-
-	l2b = irq / BITS_PER_LONG;
-	if (p->log.map->flat[l2b] == 0) {
-		__clear_bit(l2b, p->log.map->index_2);
-		l1b = l2b / BITS_PER_LONG;
-		if (p->log.map->index_2[l1b] == 0) {
-			__clear_bit(l1b, p->log.map->index_1);
-			l0b = l1b / BITS_PER_LONG;
-			if (p->log.map->index_1[l0b] == 0)
-				__clear_bit(l0b, &p->log.index_0);
-		}
-	}
-}
-
 #define ltob_1(__n)  ((__n) * BITS_PER_LONG)
 #define ltob_2(__n)  (ltob_1(__n) * BITS_PER_LONG)
 #define ltob_3(__n)  (ltob_2(__n) * BITS_PER_LONG)
@@ -709,18 +690,6 @@ void irq_post_stage(struct irq_stage *stage, unsigned int irq)
 }
 EXPORT_SYMBOL_GPL(irq_post_stage);
 
-static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
-{
-	int l0b, l1b;
-
-	l0b = irq / (BITS_PER_LONG * BITS_PER_LONG);
-	l1b = irq / BITS_PER_LONG;
-
-	__clear_bit(irq, p->log.map->flat);
-	__clear_bit(l1b, p->log.map->index_1);
-	__clear_bit(l0b, &p->log.index_0);
-}
-
 static inline int pull_next_irq(struct irq_stage_data *p)
 {
 	unsigned long l0m, l1m, l2m;
@@ -756,14 +725,6 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 }
 
 #else /* __IRQ_STAGE_MAP_LEVELS == 2 */
-
-static void __clear_pending_irq(struct irq_stage_data *p, unsigned int irq)
-{
-	int l0b = irq / BITS_PER_LONG;
-
-	__clear_bit(irq, p->log.map->flat);
-	__clear_bit(l0b, &p->log.index_0);
-}
 
 /* Must be called hard irqs off. */
 void irq_post_stage(struct irq_stage *stage, unsigned int irq)
@@ -804,53 +765,6 @@ static inline int pull_next_irq(struct irq_stage_data *p)
 }
 
 #endif  /* __IRQ_STAGE_MAP_LEVELS == 2 */
-
-static void clear_pending_irq(struct irq_stage *stage, unsigned int irq)
-{
-	struct irq_stage_data *p = this_staged(stage);
-	__clear_pending_irq(p, irq);
-}
-
-/**
- *	irq_pipeline_clear - clear IRQ event from all per-CPU logs
- *	@desc: IRQ descriptor
- *
- *      Clear any event of the specified IRQ pending from the relevant
- *      interrupt logs, for both the inband and oob stages.
- *
- *      All per-CPU logs are considered for device IRQs, per-CPU IRQ
- *      events are only looked up into the log of the current CPU.
- *
- *      Genirq should be the exclusive user of that code. The only
- *      safe context for running this code is when the corresponding
- *      IRQ line is masked, and the matching IRQ descriptor locked.
- *
- *      Hard irqs must be off on entry (which has to be the case since
- *      the IRQ descriptor lock is a mutable beast when pipelining).
- */
-void irq_pipeline_clear(struct irq_desc *desc)
-{
-	unsigned int irq = irq_desc_get_irq(desc);
-	struct irq_stage_data *p;
-	int cpu;
-
-	check_hard_irqs_disabled();
-
-	if (irq_settings_is_per_cpu_devid(desc)) {
-		clear_pending_irq(&inband_stage, irq);
-		if (oob_stage_present())
-			clear_pending_irq(&oob_stage, irq);
-	} else {
-		for_each_online_cpu(cpu) {
-			p = percpu_inband_staged(&inband_stage, cpu);
-			__clear_pending_irq(p, irq);
-			if (oob_stage_present()) {
-				p = percpu_inband_staged(&oob_stage, cpu);
-				__clear_pending_irq(p, irq);
-			}
-		}
-	}
-}
 
 /**
  *	hard_preempt_disable - Disable preemption the hard way
@@ -977,6 +891,8 @@ static void do_oob_irq(struct irq_desc *desc)
 		trace_irq_handler_exit(irq, action, ret);
 	} else {
 		desc->istate &= ~IRQS_PENDING;
+		if (unlikely(irqd_irq_disabled(&desc->irq_data)))
+			goto done;
 		irqd_set(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 		raw_spin_unlock(&desc->lock);
 		for_each_action_of_desc(desc, action) {

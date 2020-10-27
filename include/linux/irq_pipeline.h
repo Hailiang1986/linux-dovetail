@@ -48,8 +48,6 @@ bool handle_oob_irq(struct irq_desc *desc);
 
 void arch_do_IRQ_pipelined(struct irq_desc *desc);
 
-void irq_pipeline_clear(struct irq_desc *desc);
-
 #ifdef CONFIG_SMP
 void irq_pipeline_send_remote(unsigned int ipi,
 			      const struct cpumask *cpumask);
@@ -111,9 +109,6 @@ void irq_pipeline_init_early(void) { }
 
 static inline
 void irq_pipeline_init(void) { }
-
-static inline
-void irq_pipeline_clear(struct irq_desc *desc) { }
 
 static inline
 void irq_pipeline_oops(void) { }
