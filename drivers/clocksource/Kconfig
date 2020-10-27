@@ -38,7 +38,7 @@ config CLKSRC_VDSO_MAPPED
 
 config BCM2835_TIMER
 	bool "BCM2835 timer driver" if COMPILE_TEST
-	select CLKSRC_MMIO
+	select CLKSRC_VDSO_MAPPED
 	help
 	  Enables the support for the BCM2835 timer driver.
 
