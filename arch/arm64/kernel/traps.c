@@ -15,6 +15,7 @@
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
 #include <linux/hardirq.h>
+#include <linux/irqstage.h>
 #include <linux/kdebug.h>
 #include <linux/module.h>
 #include <linux/kexec.h>
