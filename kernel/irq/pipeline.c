@@ -900,7 +900,7 @@ static void do_oob_irq(struct irq_desc *desc)
 	} else {
 		desc->istate &= ~IRQS_PENDING;
 		if (unlikely(irqd_irq_disabled(&desc->irq_data)))
-			goto done;
+			return;
 		irqd_set(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 		raw_spin_unlock(&desc->lock);
 		for_each_action_of_desc(desc, action) {
