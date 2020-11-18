@@ -421,7 +421,6 @@ static int disable_oob_timer(void *arg) /* hard_irqs_disabled() */
 	real_dev->features &= ~CLOCK_EVT_FEAT_OOB;
 	barrier();
 
-	dev->proxy_device.set_next_event = real_dev->set_next_event;
 	irq_switch_oob(real_dev->irq, false);
 
 	return 0;
