@@ -1151,16 +1151,11 @@ int handle_irq_pipelined(struct pt_regs *regs)
 	 * have been logged while we were busy handling an OOB event
 	 * coming from the hardware:
 	 *
-	 * - as a result of calling an OOB handler which in turned
+	 * - as a result of calling an OOB handler which in turn
 	 * posted them.
 	 *
 	 * - because we posted them directly for scheduling the
 	 * interrupt to happen from the inband stage.
-	 *
-	 * This also means that hardware-originated OOB events have
-	 * higher precedence when received than software-originated
-	 * ones, which are synced once all IRQ flow handlers involved
-	 * in the interrupt have run.
 	 */
 	synchronize_pipeline_on_irq();
 
