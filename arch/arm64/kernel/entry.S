@@ -742,7 +742,8 @@ el0_irq_naked:
 	bl	trace_hardirqs_on_pipelined
 #endif
  	gic_prio_kentry_setup tmp=x3
-	b	ret_to_user_noirq
+	ldr	x1, [tsk, #TSK_TI_FLAGS]
+	b	finish_ret_to_user
 1:
 #endif
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -786,7 +787,6 @@ SYM_CODE_START_LOCAL(ret_to_user)
 	tst	x0, #_TLF_OOB
 	b.ne	work_done
 #endif
-ret_to_user_noirq:
 	ldr	x1, [tsk, #TSK_TI_FLAGS]
 	and	x2, x1, #_TIF_WORK_MASK
 	cbnz	x2, work_pending
