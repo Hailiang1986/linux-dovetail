@@ -938,6 +938,22 @@ static void clock_factory_dispose(struct evl_element *e)
 	destroy_clock(clock);
 }
 
+static ssize_t cycles_show(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	struct evl_clock *clock;
+	ssize_t ret;
+
+	clock = evl_get_element_by_dev(dev, struct evl_clock);
+	ret = snprintf(buf, PAGE_SIZE, "%Lu\n",
+		(unsigned long long)evl_read_clock_cycles(clock));
+	evl_put_element(&clock->element);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(cycles);
+
 static ssize_t gravity_show(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
@@ -1003,10 +1019,10 @@ out:
 
 	return ret;
 }
-
 static DEVICE_ATTR_RW(gravity);
 
 static struct attribute *clock_attrs[] = {
+	&dev_attr_cycles.attr,
 	&dev_attr_gravity.attr,
 	NULL,
 };
