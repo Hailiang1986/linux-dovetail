@@ -107,11 +107,8 @@ __syscall_enter_from_user_work(struct pt_regs *regs, long syscall)
 	 * task wants this. Compiled out if not dovetailing.
 	 */
 	ret = pipeline_syscall(syscall, regs);
-	if (ret > 0) {	/* out-of-band, bail out. */
-		instrumentation_end();
-		hard_local_irq_disable();
+	if (ret > 0)	/* out-of-band, bail out. */
 		return EXIT_SYSCALL_OOB;
-	}
 	if (ret < 0)		/* in-band, tail work only. */
 		return EXIT_SYSCALL_TAIL;
 
