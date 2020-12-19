@@ -8592,9 +8592,9 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 			struct dovetail_altsched_context *in,
 			bool leave_inband)
 {
+	unsigned long pc __maybe_unused, lockdep_irqs __maybe_unused;
 	struct task_struct *next, *prev, *last;
 	struct mm_struct *prev_mm, *next_mm;
-	unsigned long pc __maybe_unused;
 	bool inband_tail = false;
 
 	if (leave_inband) {
@@ -8668,6 +8668,10 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 	if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
 		pc = preempt_count();
 
+#ifdef CONFIG_PROVE_LOCKING
+	lockdep_irqs = this_cpu_read(hardirqs_enabled);
+#endif
+
 	switch_to(prev, next, last);
 	barrier();
 
@@ -8690,6 +8694,10 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 			WARN_ON_ONCE(1);
 		else
 			preempt_count_sub(STAGE_OFFSET);
+
+#ifdef CONFIG_PROVE_LOCKING
+		this_cpu_write(hardirqs_enabled, lockdep_irqs);
+#endif
 		/*
 		 * Fixup the interrupt state conversely to what
 		 * inband_switch_tail() does for the opposite stage
@@ -8698,8 +8706,13 @@ bool dovetail_context_switch(struct dovetail_altsched_context *out,
 		stall_inband();
 		trace_hardirqs_off();
 		inband_tail = true;
-	} else if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
-		preempt_count_set(pc);
+	} else {
+		if (IS_ENABLED(CONFIG_HAVE_PERCPU_PREEMPT_COUNT))
+			preempt_count_set(pc);
+#ifdef CONFIG_PROVE_LOCKING
+		this_cpu_write(hardirqs_enabled, lockdep_irqs);
+#endif
+	}
 
 	arch_dovetail_switch_finish(leave_inband);
 
