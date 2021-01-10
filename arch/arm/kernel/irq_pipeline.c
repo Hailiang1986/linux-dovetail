@@ -55,13 +55,13 @@ static void create_ipi_domain(void)
 					     &sipic_domain_ops, NULL);
 }
 
-void irq_pipeline_send_remote(unsigned int ipi,
-			      const struct cpumask *cpumask)
+void irq_send_oob_ipi(unsigned int ipi,
+		      const struct cpumask *cpumask)
 {
 	unsigned int ipinr = ipi - OOB_IPI_BASE;
 	smp_cross_call(cpumask, ipinr);
 }
-EXPORT_SYMBOL_GPL(irq_pipeline_send_remote);
+EXPORT_SYMBOL_GPL(irq_send_oob_ipi);
 
 #endif	/* CONFIG_SMP */
 
