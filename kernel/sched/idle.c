@@ -97,7 +97,9 @@ void __cpuidle default_idle_call(void)
 		if (irq_cpuidle_enter(NULL, NULL)) {
 			stop_critical_timings();
 			arch_cpu_idle();
+#ifdef	CONFIG_IRQ_PIPELINE
 			inband_irq_enable();
+#endif
 			start_critical_timings();
 		} else {
 			local_irq_enable_full();
