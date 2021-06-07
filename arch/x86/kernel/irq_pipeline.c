@@ -64,7 +64,7 @@ static irqentry_state_t pipeline_enter_rcu(void)
 {
 	irqentry_state_t state = {
 		.exit_rcu = false,
-		.stage_info = 0,
+		.stage_info = IRQENTRY_INBAND_UNSTALLED,
 	};
 
 	if (!IS_ENABLED(CONFIG_TINY_RCU) && is_idle_task(current)) {
@@ -202,6 +202,7 @@ static void do_sysvec_inband(struct irq_desc *desc, struct pt_regs *regs)
 
 static void do_irq_inband(struct pt_regs *regs, u32 irq)
 {
+
 	struct irq_desc *desc = irq_to_desc(irq);
 
 	desc->handle_irq(desc);
