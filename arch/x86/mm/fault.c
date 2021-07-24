@@ -767,19 +767,19 @@ show_signal_msg(struct pt_regs *regs, unsigned long error_code,
 
 static inline void cond_reenable_irqs_user(void)
 {
-	if (running_inband())
-		unstall_inband_nocheck();
-
 	hard_local_irq_enable();
+
+	if (running_inband())
+		local_irq_enable();
 }
 
 static inline void cond_reenable_irqs_kernel(irqentry_state_t state,
 					struct pt_regs *regs)
 {
 	if (regs->flags & X86_EFLAGS_IF) {
-		if (state.stage_info == IRQENTRY_INBAND_UNSTALLED)
-			unstall_inband_nocheck();
 		hard_local_irq_enable();
+		if (state.stage_info == IRQENTRY_INBAND_UNSTALLED)
+			local_irq_enable();
 	}
 }
 
@@ -788,7 +788,7 @@ static inline void cond_disable_irqs(void)
 	hard_local_irq_disable();
 
 	if (running_inband())
-		stall_inband_nocheck();
+		local_irq_disable();
 }
 
 #else  /* !CONFIG_IRQ_PIPELINE */
