@@ -3078,10 +3078,10 @@ int mp_irqdomain_alloc(struct irq_domain *domain, unsigned int virq,
 	mp_preconfigure_entry(data);
 	mp_register_handler(virq, data->is_level);
 
-	flags = hard_local_irq_save();
+	local_irq_save_full(flags);
 	if (virq < nr_legacy_irqs())
 		legacy_pic->mask(virq);
-	hard_local_irq_restore(flags);
+	local_irq_restore_full(flags);
 
 	apic_printk(APIC_VERBOSE, KERN_DEBUG
 		    "IOAPIC[%d]: Preconfigured routing entry (%d-%d -> IRQ %d Level:%i ActiveLow:%i)\n",
