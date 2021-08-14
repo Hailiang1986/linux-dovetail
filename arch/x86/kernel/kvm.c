@@ -930,6 +930,7 @@ static void kvm_wait(u8 *ptr, u8 val)
 	} else {
 		local_irq_disable_full();
 
+		/* safe_halt() will enable IRQ */
 		if (READ_ONCE(*ptr) == val)
 			safe_halt();
 
