@@ -306,6 +306,7 @@ static const char * const pf_family_names[] = {
 	[PF_QIPCRTR]	= "PF_QIPCRTR",
 	[PF_SMC]	= "PF_SMC",
 	[PF_XDP]	= "PF_XDP",
+	[PF_OOB]	= "PF_OOB",
 };
 
 /*
