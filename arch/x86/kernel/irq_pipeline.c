@@ -83,8 +83,6 @@ static void pipeline_exit_rcu(irqentry_state_t state)
 		rcu_irq_exit();
 }
 
-void uv_bau_message_interrupt(struct pt_regs *regs);
-
 static void do_sysvec_inband(struct irq_desc *desc, struct pt_regs *regs)
 {
 	unsigned int irq = irq_desc_get_irq(desc);
@@ -143,12 +141,6 @@ static void do_sysvec_inband(struct irq_desc *desc, struct pt_regs *regs)
 	case IRQ_WORK_VECTOR:
 		run_sysvec_on_irqstack_cond(__sysvec_irq_work, regs);
 		break;
-#ifdef CONFIG_X86_UV
-	case UV_BAU_MESSAGE:
-		run_sysvec_on_irqstack_cond(__sysvec_uv_bau_message,
-					regs);
-		break;
-#endif
 #ifdef CONFIG_HAVE_KVM
 	case POSTED_INTR_VECTOR:
 		run_sysvec_on_irqstack_cond(__sysvec_kvm_posted_intr_ipi,
