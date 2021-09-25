@@ -286,12 +286,12 @@ out:
 
 #ifdef CONFIG_DOVETAIL
 /*
- * When the pipeline is enabled, the companion core may switch
- * contexts over the irq stack, therefore subsequent interrupts might
- * be taken over sibling stack contexts. So we need a not so subtle
- * way of figuring out whether the irq stack was actually exited,
- * which cannot depend on the current task pointer. Instead, we track
- * the interrupt nesting depth for a CPU in irq_nesting.
+ * When Dovetail is enabled, the companion core may switch contexts
+ * over the irq stack, therefore subsequent interrupts might be taken
+ * over sibling stack contexts. So we need a not so subtle way of
+ * figuring out whether the irq stack was actually exited, which
+ * cannot depend on the current task pointer. Instead, we track the
+ * interrupt nesting depth for a CPU in irq_nesting.
  */
 DEFINE_PER_CPU(int, irq_nesting);
 
@@ -334,7 +334,7 @@ static int do_interrupt_handler(struct pt_regs *regs,
 {
 	__do_interrupt_handler(regs, handler);
 
-	return 0;
+	return 1;
 }
 #endif
 
