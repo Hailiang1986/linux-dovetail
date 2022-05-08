@@ -44,7 +44,7 @@
 #include <trace/events/evl.h>
 
 #define EVL_THREAD_CLONE_FLAGS	\
-	(EVL_CLONE_PUBLIC|EVL_CLONE_OBSERVABLE|EVL_CLONE_MASTER)
+	(EVL_CLONE_PUBLIC|EVL_CLONE_OBSERVABLE|EVL_CLONE_UNICAST)
 
 int evl_nrthreads;
 
@@ -2437,7 +2437,7 @@ thread_factory_build(struct evl_factory *fac, const char __user *u_name,
 		if (ret)
 			goto fail_observable_dev;
 		observable = observable;
-	} else if (clone_flags & EVL_CLONE_MASTER) {
+	} else if (clone_flags & EVL_CLONE_UNICAST) {
 		ret = -EINVAL;
 		goto fail_observable;
 	}
