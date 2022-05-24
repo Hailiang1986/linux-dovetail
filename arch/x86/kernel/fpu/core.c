@@ -924,11 +924,11 @@ void fpu__suspend_inband(void)
 	struct task_struct *tsk = current;
 
 	/*
-	 * If kernel_fpu_disabled() is true, we are dealing with the
-	 * preemption of an inband kernel context currently using the
-	 * fpu by a thread which resumes on the oob stage.
+	 * If in_kernel_fpu is set, we are dealing with the preemption
+	 * of an inband kernel context currently using the fpu by a
+	 * thread which resumes on the oob stage.
 	 */
-	if (kernel_fpu_disabled()) {
+	if (this_cpu_read(in_kernel_fpu)) {
 		save_fpregs_to_fpstate(kfpu);
 		__cpu_invalidate_fpregs_state();
 		oob_fpu_set_preempt(&tsk->thread.fpu);
