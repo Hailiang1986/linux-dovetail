@@ -492,7 +492,6 @@ __irq_usr:
 	get_thread_info tsk
 	mov	why, #0
 #ifdef CONFIG_IRQ_PIPELINE
-THUMB(	it ne)
 	tst	r0, r0
 	beq	fast_ret_to_user	@ skip epilogue if oob (in-band cannot be stalled)
 #endif
