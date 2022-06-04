@@ -428,7 +428,6 @@ ALT_UP_B(.L1_\@)
 	.macro ret_to_user_pipelined, tmp
 #ifdef CONFIG_IRQ_PIPELINE
 	ldr	\tmp, [tsk, #TI_LOCAL_FLAGS]
-THUMB(	it ne)
 	tst	\tmp, #_TLF_OOB
 	bne	fast_ret_to_user
 #endif
