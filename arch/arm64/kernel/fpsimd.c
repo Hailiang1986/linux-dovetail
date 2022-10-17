@@ -1532,7 +1532,7 @@ void do_sme_acc(unsigned long esr, struct pt_regs *regs)
 
 	put_cpu_fpsimd_context(flags);
 out:
-	oob_trap_unwind(ARM64_TRAP_SVE, regs);
+	oob_trap_unwind(ARM64_TRAP_SME, regs);
 }
 
 /*
