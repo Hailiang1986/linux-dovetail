@@ -66,7 +66,7 @@ static inline bool oob_fpu_preempted(struct fpu *old_fpu)
 static inline void switch_fpu_prepare(struct fpu *old_fpu, int cpu)
 {
 	if (cpu_feature_enabled(X86_FEATURE_FPU) &&
-	    !(current->flags & PF_KTHREAD) &&
+		!(current->flags & (PF_KTHREAD | PF_IO_WORKER)) &&
 		!oob_fpu_preempted(old_fpu)) {
 		save_fpregs_to_fpstate(old_fpu);
 		/*
