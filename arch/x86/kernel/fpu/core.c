@@ -549,7 +549,7 @@ void fpu__suspend_inband(void)
 	struct fpu *kfpu = this_cpu_read(in_kernel_fpstate);
 	struct task_struct *tsk = current;
 
-	if (kernel_fpu_disabled()) {
+	if (this_cpu_read(in_kernel_fpu)) {
 		copy_fpregs_to_fpstate(kfpu);
 		__cpu_invalidate_fpregs_state();
 		oob_fpu_set_preempt(&tsk->thread.fpu);
