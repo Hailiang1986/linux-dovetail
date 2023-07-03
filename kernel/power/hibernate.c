@@ -64,6 +64,7 @@ enum {
 static int hibernation_mode = HIBERNATION_SHUTDOWN;
 
 bool freezer_test_done;
+bool snapshot_test;
 
 static const struct platform_hibernation_ops *hibernation_ops;
 
@@ -690,18 +691,22 @@ static int load_image_and_restore(void)
 {
 	int error;
 	unsigned int flags;
+	fmode_t mode = FMODE_READ;
+
+	if (snapshot_test)
+		mode |= FMODE_EXCL;
 
 	pm_pr_dbg("Loading hibernation image.\n");
 
 	lock_device_hotplug();
 	error = create_basic_memory_bitmaps();
 	if (error) {
-		swsusp_close(FMODE_READ | FMODE_EXCL);
+		swsusp_close(mode);
 		goto Unlock;
 	}
 
 	error = swsusp_read(&flags);
-	swsusp_close(FMODE_READ | FMODE_EXCL);
+	swsusp_close(mode);
 	if (!error)
 		error = hibernation_restore(flags & SF_PLATFORM_MODE);
 
@@ -719,7 +724,6 @@ static int load_image_and_restore(void)
  */
 int hibernate(void)
 {
-	bool snapshot_test = false;
 	unsigned int sleep_flags;
 	int error;
 
@@ -746,6 +750,9 @@ int hibernate(void)
 	error = freeze_processes();
 	if (error)
 		goto Exit;
+
+	/* protected by system_transition_mutex */
+	snapshot_test = false;
 
 	lock_device_hotplug();
 	/* Allocate memory management structures */
@@ -942,6 +949,8 @@ static int software_resume(void)
 	 * here to avoid lockdep complaining.
 	 */
 	mutex_lock_nested(&system_transition_mutex, SINGLE_DEPTH_NESTING);
+
+	snapshot_test = false;
 
 	if (swsusp_resume_device)
 		goto Check_image;
