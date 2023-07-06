@@ -1466,7 +1466,7 @@ retry:
 
 	/* The fault is fully completed (including releasing mmap lock) */
 	if (fault & VM_FAULT_COMPLETED)
-		return;
+		goto out;
 
 	/*
 	 * If we need to retry the mmap_lock has already been released,
