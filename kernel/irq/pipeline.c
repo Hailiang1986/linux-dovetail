@@ -139,46 +139,6 @@ static struct irq_domain_ops sirq_domain_ops = {
 	.map	= sirq_map,
 };
 
-#ifdef CONFIG_SPARSE_IRQ
-#define DESC_CACHE_SZ  128
-
-static struct irq_desc *desc_cache[DESC_CACHE_SZ] __cacheline_aligned;
-
-static inline u32 hash_irq(unsigned int irq)
-{
-	return jhash(&irq, sizeof(irq), irq) % DESC_CACHE_SZ;
-}
-
-static __always_inline
-struct irq_desc *irq_to_cached_desc(unsigned int irq)
-{
-	int hval = hash_irq(irq);
-	struct irq_desc *desc = desc_cache[hval];
-
-	if (unlikely(desc == NULL || irq_desc_get_irq(desc) != irq)) {
-		desc = irq_to_desc(irq);
-		desc_cache[hval] = desc;
-	}
-
-	return desc;
-}
-
-void uncache_irq_desc(unsigned int irq)
-{
-	int hval = hash_irq(irq);
-
-	desc_cache[hval] = NULL;
-}
-
-#else
-
-static struct irq_desc *irq_to_cached_desc(unsigned int irq)
-{
-	return irq_to_desc(irq);
-}
-
-#endif
-
 /**
  *	handle_synthetic_irq -  synthetic irq handler
  *	@desc:	the interrupt description structure for this irq
@@ -1254,7 +1214,7 @@ int irq_inject_pipeline(unsigned int irq)
 	struct irq_desc *desc;
 	unsigned long flags;
 
-	desc = irq_to_cached_desc(irq);
+	desc = irq_to_desc(irq);
 	if (desc == NULL)
 		return -EINVAL;
 
@@ -1331,7 +1291,7 @@ respin:
 		 */
 		barrier();
 
-		desc = irq_to_cached_desc(irq);
+		desc = irq_to_desc(irq);
 
 		if (stage == &inband_stage) {
 			hard_local_irq_enable();

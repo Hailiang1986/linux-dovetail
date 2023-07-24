@@ -480,7 +480,6 @@ static void free_desc(unsigned int irq)
 	 * irq_sysfs_init() as well.
 	 */
 	irq_sysfs_del(desc);
-	uncache_irq_desc(irq);
 	delete_irq_desc(irq);
 
 	/*
