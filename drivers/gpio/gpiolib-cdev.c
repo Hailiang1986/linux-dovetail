@@ -2141,6 +2141,7 @@ static int lineevent_create(struct gpio_device *gdev, void __user *ip)
 	irqflags |= IRQF_ONESHOT;
 
 	INIT_KFIFO(le->events);
+	init_waitqueue_head(&le->wait);
 
 	if (oob_handling_requested(lflags)) {
 		if (desc->gdev->chip->can_sleep) {
