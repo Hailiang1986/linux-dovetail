@@ -66,6 +66,8 @@ static void do_sysvec_inband(struct irq_desc *desc)
 	struct pt_regs *regs = get_irq_regs();
 	int vector = apicm_irq_vector(irq);
 
+	irq_clear_deferral(desc);
+
 	/*
 	 * This code only sees pipelined sysvec events tagged with
 	 * DEFINE_IDTENTRY_SYSVEC_PIPELINED:
