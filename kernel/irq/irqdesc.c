@@ -637,6 +637,17 @@ void irq_init_desc(unsigned int irq)
 
 #endif /* !CONFIG_SPARSE_IRQ */
 
+static inline bool is_hardirq(struct irq_desc *desc)
+{
+	if (!irqs_pipelined())
+		return hardirq_count() != 0;
+
+	if (in_pipeline() || !(desc->istate & IRQS_DEFERRED))
+		return true;
+
+	return false;
+}
+
 /**
  * generic_handle_irq - Handle a particular irq
  * @irq:	The irq number to handle
@@ -654,7 +665,7 @@ int generic_handle_irq(unsigned int irq)
 		return -EINVAL;
 
 	data = irq_desc_get_irq_data(desc);
-	if (WARN_ON_ONCE(!in_hard_irq() && handle_enforce_irqctx(data)))
+	if (WARN_ON_ONCE(!is_hardirq(desc) && handle_enforce_irqctx(data)))
 		return -EPERM;
 
 	generic_handle_irq_desc(desc);
