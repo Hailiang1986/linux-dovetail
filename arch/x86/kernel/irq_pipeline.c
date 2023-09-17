@@ -327,6 +327,10 @@ DEFINE_IDTENTRY_SYSVEC_PIPELINED(RESCHEDULE_OOB_VECTOR,
 				 sysvec_reschedule_oob_ipi)
 { /* In-band handler is unused. */ }
 
+DEFINE_IDTENTRY_SYSVEC_PIPELINED(CALL_FUNCTION_OOB_VECTOR,
+				 sysvec_call_function_oob_ipi)
+{ /* In-band handler is unused. */ }
+
 DEFINE_IDTENTRY_SYSVEC_PIPELINED(TIMER_OOB_VECTOR,
 				 sysvec_timer_oob_ipi)
 { /* In-band handler is unused. */ }
@@ -371,7 +375,7 @@ static void smp_setup(void)
 
 static void smp_setup(void) { }
 
-#endif
+#endif	/* !CONFIG_SMP */
 
 void __init arch_irq_pipeline_init(void)
 {
