@@ -1059,9 +1059,11 @@ out:
 void handle_percpu_irq(struct irq_desc *desc)
 {
 	struct irq_chip *chip = irq_desc_get_chip(desc);
+	unsigned long flags;
 	bool handled;
 
 	if (on_pipeline_entry()) {
+		/* on_pipeline_entry() implies hard irqs off. */
 		if (chip->irq_ack)
 			chip->irq_ack(&desc->irq_data);
 		handled = handle_oob_irq(desc);
@@ -1080,8 +1082,16 @@ void handle_percpu_irq(struct irq_desc *desc)
 
 	if (irqs_pipelined()) {
 		handle_irq_event_percpu(desc);
-		if (chip->irq_unmask)
+		if (chip->irq_unmask) {
+			/*
+			 * irqchip handlers assume that hard irqs are
+			 * off, which is not the case on replay of
+			 * unserialized percpu irqs: fix this up.
+			 */
+			flags = hard_cond_local_irq_save();
 			chip->irq_unmask(&desc->irq_data);
+			hard_cond_local_irq_restore(flags);
+		}
 	} else {
 		if (chip->irq_ack)
 			chip->irq_ack(&desc->irq_data);
@@ -1107,10 +1117,12 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	struct irqaction *action = desc->action;
 	unsigned int irq = irq_desc_get_irq(desc);
+	unsigned long flags;
 	irqreturn_t res;
 	bool handled;
 
 	if (on_pipeline_entry()) {
+		/* on_pipeline_entry() implies hard irqs off. */
 		if (chip->irq_ack)
 			chip->irq_ack(&desc->irq_data);
 		handled = handle_oob_irq(desc);
@@ -1146,8 +1158,15 @@ void handle_percpu_devid_irq(struct irq_desc *desc)
 	}
 
 	if (irqs_pipelined()) {
+		/*
+		 * irqchip handlers assume that hard irqs are off,
+		 * which is not the case on replay of unserialized
+		 * percpu irqs: fix this up.
+		 */
+		flags = hard_cond_local_irq_save();
 		if (chip->irq_unmask)
 			chip->irq_unmask(&desc->irq_data);
+		hard_cond_local_irq_restore(flags);
 	} else if (chip->irq_eoi)
 			chip->irq_eoi(&desc->irq_data);
 }
@@ -1197,6 +1216,8 @@ void handle_percpu_devid_fasteoi_ipi(struct irq_desc *desc)
  *
  * Similar to handle_fasteoi_nmi, but handling the dev_id cookie
  * as a percpu pointer.
+ *
+ * irq_pipeline: we never log & replay NMIs.
  */
 void handle_percpu_devid_fasteoi_nmi(struct irq_desc *desc)
 {
