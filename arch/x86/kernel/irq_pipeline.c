@@ -53,13 +53,6 @@ void handle_apic_irq(struct irq_desc *desc)
 	handle_oob_irq(desc);
 }
 
-void irq_send_oob_ipi(unsigned int ipi,
-		const struct cpumask *cpumask)
-{
-	apic->send_IPI_mask_allbutself(cpumask,	apicm_irq_vector(ipi));
-}
-EXPORT_SYMBOL_GPL(irq_send_oob_ipi);
-
 static void do_sysvec_inband(struct irq_desc *desc)
 {
 	unsigned int irq = irq_desc_get_irq(desc);
