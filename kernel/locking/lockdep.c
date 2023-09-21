@@ -5473,6 +5473,8 @@ static void __lock_unpin_lock(struct lockdep_map *lock, struct pin_cookie cookie
 static noinstr void check_flags(unsigned long flags)
 {
 #if defined(CONFIG_PROVE_LOCKING) && defined(CONFIG_DEBUG_LOCKDEP)
+	bool stalled;
+
 	/*
 	 * irq_pipeline: we can't and don't want to check the
 	 * consistency of the irq tracer when running over the
@@ -5485,8 +5487,8 @@ static noinstr void check_flags(unsigned long flags)
 	/* Get the warning out..  */
 	instrumentation_begin();
 
-	if (stage_disabled_flags(flags)) {
-		if (DEBUG_LOCKS_WARN_ON(lockdep_hardirqs_enabled())) {
+	if (stage_disabled_flags(flags, &stalled)) {
+		if (DEBUG_LOCKS_WARN_ON(lockdep_hardirqs_enabled() && stalled)) {
 			printk("possible reason: unannotated irqs-off.\n");
 		}
 	} else {
