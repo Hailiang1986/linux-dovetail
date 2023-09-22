@@ -7537,7 +7537,9 @@ out:
 
 static void tracing_swap_cpu_buffer(void *tr)
 {
+	hard_local_irq_disable();
 	update_max_tr_single((struct trace_array *)tr, current, smp_processor_id());
+	hard_local_irq_enable();
 }
 
 static ssize_t
