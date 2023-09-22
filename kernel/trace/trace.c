@@ -7520,7 +7520,9 @@ out:
 
 static void tracing_swap_cpu_buffer(void *tr)
 {
+	hard_local_irq_disable();
 	update_max_tr_single((struct trace_array *)tr, current, smp_processor_id());
+	hard_local_irq_enable();
 }
 
 static ssize_t
@@ -7586,7 +7588,7 @@ tracing_snapshot_write(struct file *filp, const char __user *ubuf, size_t cnt,
 			hard_local_irq_disable();
 			update_max_tr(tr, current, smp_processor_id(), NULL);
 			hard_local_irq_enable();
-		} else {	/* FIXME: irq_pipeline */
+		} else {
 			smp_call_function_single(iter->cpu_file, tracing_swap_cpu_buffer,
 						 (void *)tr, 1);
 		}
