@@ -554,6 +554,26 @@ DEFINE_LOCK_GUARD_1(raw_spinlock_irqsave, raw_spinlock_t,
 		    raw_spin_unlock_irqrestore(_T->lock, _T->flags),
 		    unsigned long flags)
 
+DEFINE_LOCK_GUARD_1(hard_spinlock, hard_spinlock_t,
+		    hard_spin_lock((raw_spinlock_t *)_T->lock),
+		    hard_spin_unlock((raw_spinlock_t *)_T->lock))
+
+DEFINE_LOCK_GUARD_1(hard_spinlock_nested, hard_spinlock_t,
+		    hard_spin_lock_nested((raw_spinlock_t *)_T->lock,
+					  SINGLE_DEPTH_NESTING),
+		    hard_spin_unlock((raw_spinlock_t *)_T->lock))
+
+DEFINE_LOCK_GUARD_1(hard_spinlock_irq, hard_spinlock_t,
+		    hard_spin_lock_irq((raw_spinlock_t *)_T->lock),
+		    hard_spin_unlock_irq((raw_spinlock_t *)_T->lock))
+
+DEFINE_LOCK_GUARD_1(hard_spinlock_irqsave, hard_spinlock_t,
+		    hard_spin_lock_irqsave((raw_spinlock_t *)_T->lock,
+					   _T->flags),
+		    hard_spin_unlock_irqrestore((raw_spinlock_t *)_T->lock,
+						_T->flags),
+		    unsigned long flags)
+
 DEFINE_LOCK_GUARD_1(spinlock, spinlock_t,
 		    spin_lock(_T->lock),
 		    spin_unlock(_T->lock))
