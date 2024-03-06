@@ -1016,8 +1016,8 @@ void __init_or_module text_poke_early(void *addr, const void *opcode,
 	} else {
 		flags = hard_local_irq_save();
 		memcpy(addr, opcode, len);
-		hard_local_irq_restore(flags);
 		sync_core();
+		hard_local_irq_restore(flags);
 
 		/*
 		 * Could also do a CLFLUSH here to speed up CPU recovery; but
