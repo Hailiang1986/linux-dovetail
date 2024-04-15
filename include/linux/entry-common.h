@@ -172,6 +172,17 @@ long syscall_trace_enter(struct pt_regs *regs, long syscall,
 static __always_inline long syscall_enter_from_user_mode_work(struct pt_regs *regs, long syscall)
 {
 	unsigned long work = READ_ONCE(current_thread_info()->syscall_work);
+	int ret;
+
+	/*
+	 * Pipeline the syscall to the companion core if the current
+	 * task wants this. Compiled out if not dovetailing.
+	 */
+	ret = pipeline_syscall(syscall, regs);
+	if (ret > 0)	/* out-of-band, bail out. */
+		return EXIT_SYSCALL_OOB;
+	if (ret < 0)		/* in-band, tail work only. */
+		return EXIT_SYSCALL_TAIL;
 
 	if (work & SYSCALL_WORK_ENTER)
 		syscall = syscall_trace_enter(regs, syscall, work);
@@ -337,6 +348,19 @@ void arch_do_signal_or_restart(struct pt_regs *regs);
 unsigned long exit_to_user_mode_loop(struct pt_regs *regs,
 				     unsigned long ti_work);
 
+static inline bool do_retuser(unsigned long ti_work)
+{
+	if (dovetailing() && (ti_work & _TIF_RETUSER)) {
+		hard_local_irq_enable();
+		inband_retuser_notify();
+		hard_local_irq_disable();
+		/* RETUSER might have switched oob */
+		return running_inband();
+	}
+
+	return false;
+}
+
 /**
  * exit_to_user_mode_prepare - call exit_to_user_mode_loop() if required
  * @regs:	Pointer to pt_regs on entry stack
@@ -358,11 +382,16 @@ static __always_inline void exit_to_user_mode_prepare(struct pt_regs *regs)
 	/* Flush pending rcuog wakeup before the last need_resched() check */
 	tick_nohz_user_enter_prepare();
 
+again:
 	ti_work = read_thread_flags();
 	if (unlikely(ti_work & EXIT_TO_USER_MODE_WORK))
 		ti_work = exit_to_user_mode_loop(regs, ti_work);
 
 	arch_exit_to_user_mode_prepare(regs, ti_work);
+
+	/* Dovetail: Fire pending RETUSER request. */
+	if (do_retuser(ti_work))
+		goto again;
 
 	/* Ensure that kernel state is sane for a return to userspace */
 	kmap_assert_nomap();

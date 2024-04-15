@@ -174,6 +174,24 @@ static void syscall_exit_work(struct pt_regs *regs, unsigned long work)
 		ptrace_report_syscall_exit(regs, step);
 }
 
+static inline bool syscall_has_exit_work(struct pt_regs *regs,
+					unsigned long work)
+{
+	/*
+	 * Dovetail: if this does not look like an in-band syscall, it
+	 * has to belong to the companion core. Typically,
+	 * __OOB_SYSCALL_BIT would be set in this value. Skip the
+	 * work for those syscalls.
+	 */
+	if (unlikely(work & SYSCALL_WORK_EXIT)) {
+		if (!irqs_pipelined())
+			return true;
+		return syscall_get_nr(current, regs) < NR_syscalls;
+	}
+
+	return false;
+}
+
 /*
  * Syscall specific exit to user mode preparation. Runs with interrupts
  * enabled.
@@ -197,7 +215,7 @@ static void syscall_exit_to_user_mode_prepare(struct pt_regs *regs)
 	 * enabled, we want to run them exactly once per syscall exit with
 	 * interrupts enabled.
 	 */
-	if (unlikely(work & SYSCALL_WORK_EXIT))
+	if (syscall_has_exit_work(regs, work))
 		syscall_exit_work(regs, work);
 }
 
