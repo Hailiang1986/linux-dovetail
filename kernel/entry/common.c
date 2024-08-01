@@ -329,13 +329,11 @@ static void syscall_exit_to_user_mode_prepare(struct pt_regs *regs)
 	 * interrupts enabled.
 	 *
 	 * Dovetail: if this does not look like an in-band syscall, it
-	 * has to belong to the companion core. Typically,
-	 * __OOB_SYSCALL_BIT would be set in this value. Skip the
-	 * work for those syscalls.
+	 * has to belong to the companion core.  Skip the work for
+	 * those syscalls.
 	 */
 	if (unlikely((cached_flags & SYSCALL_EXIT_WORK) &&
-		(!irqs_pipelined() ||
-			syscall_get_nr(current, regs) < NR_syscalls)))
+		     (!irqs_pipelined() || !in_oob_syscall(regs))))
 		syscall_exit_work(regs, cached_flags);
 }
 
