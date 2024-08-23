@@ -14,6 +14,8 @@
 #include <asm/mshyperv.h>
 #include <asm/idtentry.h>
 
+void (*pipeline_hv_callback_fn)(struct pt_regs *regs) = NULL;
+
 static struct irq_domain *sipic_domain;
 
 static void sipic_irq_noop(struct irq_data *data) { }
@@ -117,9 +119,6 @@ static void do_sysvec_inband(struct irq_desc *desc)
 		break;
 #endif
 #ifdef CONFIG_HYPERV
-	case HYPERVISOR_CALLBACK_VECTOR:
-		__sysvec_hyperv_callback(regs);
-		break;
 	case HYPERV_REENLIGHTENMENT_VECTOR:
 		__sysvec_hyperv_reenlightenment(regs);
 		break;
@@ -127,21 +126,9 @@ static void do_sysvec_inband(struct irq_desc *desc)
 		__sysvec_hyperv_stimer0(regs);
 		break;
 #endif
-#ifdef CONFIG_ACRN_GUEST
 	case HYPERVISOR_CALLBACK_VECTOR:
-		__sysvec_acrn_hv_callback(regs);
+		pipeline_hv_callback_fn(regs);
 		break;
-#endif
-#ifdef CONFIG_XEN_PVHVM
-	case HYPERVISOR_CALLBACK_VECTOR:
-		__sysvec_xen_hvm_callback(regs);
-		break;
-#endif
-#ifdef CONFIG_KVM_GUEST
-	case HYPERVISOR_CALLBACK_VECTOR:
-		__sysvec_kvm_asyncpf_interrupt(regs);
-		break;
-#endif
 	case LOCAL_TIMER_VECTOR:
 		__sysvec_apic_timer_interrupt(regs);
 		break;
