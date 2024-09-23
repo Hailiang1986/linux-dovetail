@@ -2848,6 +2848,8 @@ struct dst_entry *ipv4_blackhole_route(struct net *net, struct dst_entry *dst_or
 }
 
 #ifdef CONFIG_NET_OOB
+void ip_learn_oob_route(struct net *net, struct flowi4 *flp4, struct rtable *rt);
+
 __weak
 #else
 static inline
